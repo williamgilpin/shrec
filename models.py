@@ -366,6 +366,7 @@ def distance_to_connectivity(dmat, dscale=None, sparsity=None):
 from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
 
 from scipy.optimize import minimize_scalar, root_scalar
+from scipy.stats import boxcox
 import warnings
 
 from models import _embed
@@ -430,6 +431,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         make_embedding=True,
         time_exclude=0,
         standardize=True,
+        box_cox=False,
         weighted_connectivity=True,
         merge="min",
         use_sparse=False,
@@ -449,6 +451,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.merge = merge
         self.weighted_connectivity = weighted_connectivity
         self.standardize = standardize
+        self.box_cox = box_cox
         self.use_sparse = use_sparse
         self.store_adjacency_matrix = store_adjacency_matrix
         self.padding = padding
@@ -470,6 +473,21 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             X_embed += self.noise * np.random.normal(size=X_embed.shape)
             
         return X_embed
+    
+    def _preprocess(self, X):
+        """
+        Preprocess the input dataset
+        """
+        if self.detrend:
+            X = detrend_ts(X)
+        
+        if self.box_cox:
+            X = np.vstack([boxcox(item - np.min(item)*1.005)[0] for item in X])
+            
+        if self.standardize:
+            X = standardize_ts(X)
+        
+        return X
 
     def _find_distance_matrix(self, X):
         """
@@ -645,27 +663,29 @@ class RecurrenceClustering(RecurrenceModel):
             X (array-like): A matrix of shape (n_timepoints, n_features)        
         """
         np.random.seed(self.random_state)
-        if self.detrend:
-            X = detrend_ts(X)
+#         if self.detrend:
+#             X = detrend_ts(X)
         
-        if self.standardize:
-            X = standardize_ts(X)
+#         if self.standardize:
+#             X = standardize_ts(X)
+            
+        X = self._preprocess(X)
             
         if len(X.shape) == 2:
-            X_embed = self._make_embedding(X)
+            X = self._make_embedding(X)
         elif len(X.shape) == 3:
             warnings.warn("Skipping embedding.")
-            X_embed = np.copy(X)
+            X = np.copy(X)
             self.d_embed = X.shape[-1]
         else:
             raise ValueError("Input shape not valid.")
-        nbatch, ntime, ndim = X_embed.shape
+        nbatch, ntime, ndim = X.shape
 
-#         distance_matrix_stack = self._find_distance_matrix(X_embed)
+#         distance_matrix_stack = self._find_distance_matrix(X)
 #         distance_matrix = self._flatten_distance_matrix(distance_matrix_stack)
 #         dist_mat_bin = self._threshold_matrix(distance_matrix)
         
-        dist_mat_bin = data_to_connectivity(X_embed, 
+        dist_mat_bin = data_to_connectivity(X, 
                           return_extremum=False, 
                           time_exclude=self.time_exclude,
                           use_sparse=self.use_sparse,
@@ -811,35 +831,37 @@ class RecurrenceManifold(RecurrenceModel):
             root_index (int): The index of the first point in the drive signal.
         """
         np.random.seed(self.random_state)
-        if self.detrend:
-            X = detrend_ts(X)
+#         if self.detrend:
+#             X = detrend_ts(X)
         
-        if self.standardize:
-            X = standardize_ts(X)
+#         if self.standardize:
+#             X = standardize_ts(X)
+
+        X = self._preprocess(X)
             
         if len(X.shape) == 2:
-            X_embed = self._make_embedding(X)
+            X = self._make_embedding(X)
         elif len(X.shape) == 3:
             warnings.warn("Skipping embedding.")
-            X_embed = np.copy(X)
+            X = np.copy(X)
             self.d_embed = X.shape[-1]
         else:
             raise ValueError("Input shape not valid.")
-        nbatch, ntime, ndim = X_embed.shape
+        nbatch, ntime, ndim = X.shape
         
         # Slowest step: compute the distance matrix for each example      
         ## an alternative approach that dodges the optimizer
         curr_time() # slowest step here:
         print("Computing distance matrix... ", flush=True, end='')
         if self.start != "multiple":
-            root_index, bd = data_to_connectivity(X_embed, 
+            root_index, bd = data_to_connectivity(X, 
                                                   return_extremum=True, 
                                                   time_exclude=self.time_exclude,
                                                   use_sparse=self.use_sparse,
                                                   scale=self.scale
                                                  )
         else:
-            bd = data_to_connectivity(X_embed, 
+            bd = data_to_connectivity(X, 
                                       return_extremum=False, 
                                       time_exclude=self.time_exclude,
                                       use_sparse=self.use_sparse,
