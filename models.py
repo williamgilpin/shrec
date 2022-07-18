@@ -3,6 +3,8 @@ import scipy
 import warnings
 
 from utils import *
+from utils import embed_ts, standardize_ts, minmax_ts, find_psd
+    
 
 class DisjointSet:
     """
@@ -59,28 +61,28 @@ def solve(lists):
     return [lst and groups[disjoint.find(lst[0])] for lst in lists]
 
 
-def _embed(X, m, padding=None):
-    """
-    Create a time delay embedding of a time series or a set of time series
+# def _embed(X, m, padding=None):
+#     """
+#     Create a time delay embedding of a time series or a set of time series
 
-    Args:
-        X (array-like): A matrix of shape (n_timepoints, n_dims) or 
-            of shape (n_timepoints)
-        m (int): The number of dimensions
+#     Args:
+#         X (array-like): A matrix of shape (n_timepoints, n_dims) or 
+#             of shape (n_timepoints)
+#         m (int): The number of dimensions
 
-    Returns:
-        Xp (array-like): A time-delay embedding
-    """
-    if padding:
-        if len(X.shape) == 1:
-            X = np.pad(X, [m, 0], padding)
-        if len(X.shape) == 2:
-            X = np.pad(X, [[m, 0], [0, 0]], padding)
-        if len(X.shape) == 3:
-            X = np.pad(X, [[0, 0], [m, 0], [0, 0]], padding)
-    Xp = hankel_matrix(X, m)
-    Xp = np.moveaxis(Xp, (0, 1, 2), (1, 2, 0))
-    return Xp
+#     Returns:
+#         Xp (array-like): A time-delay embedding
+#     """
+#     if padding:
+#         if len(X.shape) == 1:
+#             X = np.pad(X, [m, 0], padding)
+#         if len(X.shape) == 2:
+#             X = np.pad(X, [[m, 0], [0, 0]], padding)
+#         if len(X.shape) == 3:
+#             X = np.pad(X, [[0, 0], [m, 0], [0, 0]], padding)
+#     Xp = hankel_matrix(X, m)
+#     Xp = np.moveaxis(Xp, (0, 1, 2), (1, 2, 0))
+#     return Xp
 
 import scanpy as sc
 def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
@@ -94,12 +96,13 @@ def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
         root (integer): the index to use as the root
         n_branchings (int): the expected number of bifurcations
         fill (float or None): fill value for points unassigned pseudotime
+        n_comps (int): the number of components to use in the diffusion map
         
     Returns
         pt_vals (array): a list of pseudotime assignments of length N
     """
     ndim = dmat.shape[0]
-    adata = sc.AnnData(np.zeros((ndim, 3)))
+    adata = sc.AnnData(np.zeros((ndim, 3)), dtype='float64')
     sc.pp.neighbors(adata, n_neighbors=3, n_pcs=3)  ## no effect
     # this distance matrix is not used
     adata.obsp["distances"] = scipy.sparse.csr_matrix(dmat.shape)
@@ -212,8 +215,14 @@ from scipy.spatial.distance import cdist
 from scipy.spatial import KDTree
 import scipy.sparse
 from scipy.stats import iqr
+
+try:
+    from tslearn.metrics import cdist_dtw
+except ImportError:
+    has_tslearn = False
+
 def data_to_connectivity(X, return_extremum=False, merge="percentile", 
-                         time_exclude=0, use_sparse=None, scale=1.0):
+                         time_exclude=0, use_sparse=None, scale=1.0, metric="euclidean"):
     """
     Given a stack of M time series, each of shape N x D, compute a 
     single consolidated N x N connectivity or adjacency matrix
@@ -223,7 +232,10 @@ def data_to_connectivity(X, return_extremum=False, merge="percentile",
             of time series, N is the number of time points, and D is their 
             dimensionality
         return_extremum (bool): Return the index of the extremum of the timepoints
+        metric ("euclidean" | "dtw"): The metric to use for distance computation
     """
+
+    # if metric == "dtw" and has_tslearn: cdist = cdist_dtw
     
     sel_inds = np.all(np.isclose(X, X[:, :1, :], 1e-12), axis=(1, 2))
     if np.sum(sel_inds) > 0:
@@ -369,10 +381,8 @@ from scipy.optimize import minimize_scalar, root_scalar
 from scipy.stats import boxcox
 import warnings
 
-from models import _embed
-from models import *
-
-
+# from models import embed_ts
+# from models import *
 
 
 class RecurrenceModel(BaseEstimator, ClusterMixin):
@@ -385,8 +395,11 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             This defaults to 1% of all timepoints. Increasing this parameter improves 
             noise robustness, at the expense of decreasing the detail with which the
             driver can be resolved
+        d_embed (int): The number of past timepoints to use for embedding
         noise (float): The amplitude of the noise used to blur the input data (for 
             regularization).
+        eps (float): The tolerance for neighbor detection.
+        random_state (int): The random seed for the random number generator
         make_embedding (bool): Perform a time delay embedding before computing the 
             distance matrix. If multivariate time series are passed, each channel is 
             treated as an independent time series. Otherwise, the time series are 
@@ -398,13 +411,14 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             Other options include the mean across systems ("mean") and the fifth 
             percentile ("percentile")
         standardize (bool): Whether to standardize the input time series
+        box_cox (bool): Whether to apply a Box-Cox transformation to the input time series
         detrend (bool): Whether to detrend the input time series
         use_sparse (bool): Whether to default to sparse matrices, allowing longer time 
             series at the expense of accuracy
         store_adjacency_matrix (bool): Whether to store the neighbor matrix
         padding ("symmetric" | "constant" | None): The method of padding the time delay 
             embedding. See the documentation for numpy.pad for all options.
-        metric ("euclidean" or "dtw"): Not Implemented. The metric to use to compute the
+        metric ("euclidean" or "dtw"): The metric to use to compute the
             pairwise distance matrix among timepoints
         scale (float): The scaling of the elements of the distance matrix before conversion
             to connectivity
@@ -437,6 +451,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         use_sparse=False,
         store_adjacency_matrix=False,
         detrend=False,
+        metric="euclidean",
         scale=1.0,
         padding="symmetric"
     ):
@@ -456,17 +471,40 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.store_adjacency_matrix = store_adjacency_matrix
         self.padding = padding
         self.detrend = detrend
+        self.metric = metric
         self.scale = scale
         
         np.random.seed(self.random_state)
 
     def _make_embedding(self, X):
+        """
+        Create a time delay embedding of an input series. If the series is multivariate,
+        create a multivariate embedding
+        """
         np.random.seed(self.random_state)
-        X = np.reshape(X, (X.shape[0], -1))
-        X = standardize_ts(X)
         
-        ## Time delay embedding
-        X_embed = _embed(X, self.d_embed, padding=self.padding)
+        if len(X.shape) == 2:
+            X = np.reshape(X, (X.shape[0], -1))
+            X_embed = embed_ts(X, self.d_embed, padding=self.padding)
+        elif len(X.shape) == 3:
+            ## Multivariate
+            warnings.warn("Multivariate time series detected, embedding each "
+                          + "dimension separately."
+                         )
+            all_embeddings = list()
+            for i in X.shape[-1]:
+                X = np.reshape(X[..., i], (X.shape[0], -1))
+                all_embeddings.append(
+                    embed_ts(
+                        np.reshape(X[..., i], (X.shape[0], -1)), 
+                        self.d_embed, 
+                        padding=self.padding
+                    )
+                )
+            X_embed = np.hstack(all_embeddings)
+
+        else:
+            raise ValueError("Input shape not valid.")
 
         ## Regularization
         if self.noise > 0.0:
@@ -482,7 +520,14 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             X = detrend_ts(X)
         
         if self.box_cox:
-            X = np.vstack([boxcox(item - np.min(item)*1.005)[0] for item in X])
+            X = detrend_ts(X)
+            X = standardize_ts(X)
+            X = X[:, np.std(X, axis=0) > 0]
+            X = minmax_ts(X) + 0.01
+            X = np.vstack([boxcox(item)[0] for item in X.T]).T
+            #X = np.reshape(boxcox(np.ravel(X))[0], X.shape)
+            X = detrend_ts(X)
+            X = standardize_ts(X)
             
         if self.standardize:
             X = standardize_ts(X)
@@ -663,27 +708,10 @@ class RecurrenceClustering(RecurrenceModel):
             X (array-like): A matrix of shape (n_timepoints, n_features)        
         """
         np.random.seed(self.random_state)
-#         if self.detrend:
-#             X = detrend_ts(X)
-        
-#         if self.standardize:
-#             X = standardize_ts(X)
             
         X = self._preprocess(X)
-            
-        if len(X.shape) == 2:
-            X = self._make_embedding(X)
-        elif len(X.shape) == 3:
-            warnings.warn("Skipping embedding.")
-            X = np.copy(X)
-            self.d_embed = X.shape[-1]
-        else:
-            raise ValueError("Input shape not valid.")
+        X = self._make_embedding(X)
         nbatch, ntime, ndim = X.shape
-
-#         distance_matrix_stack = self._find_distance_matrix(X)
-#         distance_matrix = self._flatten_distance_matrix(distance_matrix_stack)
-#         dist_mat_bin = self._threshold_matrix(distance_matrix)
         
         dist_mat_bin = data_to_connectivity(X, 
                           return_extremum=False, 
@@ -759,7 +787,7 @@ class RecurrenceClustering(RecurrenceModel):
 
         X = np.reshape(X, (X.shape[0], -1))
         X = standardize_ts(X)  ## check this
-        X_embed = _embed(X, self.d_embed)
+        X_embed = embed_ts(X, self.d_embed)
         # (B, T, D)
 
         class_example = list()
@@ -800,13 +828,13 @@ class RecurrenceClustering(RecurrenceModel):
 
 
 
-
+from sklearn.decomposition import PCA
 from scipy.stats import arcsine, beta
 unique_unsorted = lambda a : a[np.sort(np.unique(a, return_index=True)[1])]
 class RecurrenceManifold(RecurrenceModel):
     """
-    Assign continuous time labels to a set of timepoints by finding
-    recurrence families across multiple time series measurements
+    Assign continuous time labels to a set of timepoints by finding recurrence families
+     across multiple time series measurements
     """
     def __init__(self, 
                  start="multiple", 
@@ -831,22 +859,9 @@ class RecurrenceManifold(RecurrenceModel):
             root_index (int): The index of the first point in the drive signal.
         """
         np.random.seed(self.random_state)
-#         if self.detrend:
-#             X = detrend_ts(X)
-        
-#         if self.standardize:
-#             X = standardize_ts(X)
-
+        X0 = np.copy(X)
         X = self._preprocess(X)
-            
-        if len(X.shape) == 2:
-            X = self._make_embedding(X)
-        elif len(X.shape) == 3:
-            warnings.warn("Skipping embedding.")
-            X = np.copy(X)
-            self.d_embed = X.shape[-1]
-        else:
-            raise ValueError("Input shape not valid.")
+        X = self._make_embedding(X)
         nbatch, ntime, ndim = X.shape
         
         # Slowest step: compute the distance matrix for each example      
@@ -891,6 +906,12 @@ class RecurrenceManifold(RecurrenceModel):
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
         #neighbor_matrix = dist_mat_bin
         neighbor_matrix = bd
+        #root_index = np.argmin(np.mean(neighbor_matrix, axis=1))
+        root_index = np.argmin(np.min(neighbor_matrix, axis=1))
+        self.root_index = root_index
+        
+        # rescale
+        # neighbor_matrix = (neighbor_matrix - np.min(neighbor_matrix) + 1e-6) / (np.max(neighbor_matrix) - np.min(neighbor_matrix) + 1e-6)
         curr_time()
         if self.store_adjacency_matrix:
             self.adjacency_matrix = neighbor_matrix
@@ -908,6 +929,18 @@ class RecurrenceManifold(RecurrenceModel):
                 start_inds =  np.argsort(np.mean(neighbor_matrix, axis=0))[sel_inds]
             elif self.sampling_method_pseudotime == "deterministic":
                 start_inds = np.linspace(0, ntime - ndim, n_sample).astype(int)
+            elif self.sampling_method_pseudotime == "deterministic_extreme":
+                print("test", flush=True)
+                start_inds = np.argsort(np.min(neighbor_matrix, axis=1))[:n_sample].astype(int) # could try percentile
+                
+                xi, _ = np.unravel_index(np.argsort(np.ravel(neighbor_matrix)), (neighbor_matrix.shape))
+                start_inds = xi[:n_sample].astype(int)
+                # start_inds = np.argsort(np.max(hollow_matrix(neighbor_matrix), axis=1))[-n_sample:].astype(int) # percentile
+                # start_inds = np.hstack([
+                #     np.argsort(np.min(neighbor_matrix, axis=1))[:n_sample // 2].astype(int), 
+                #     np.argsort(np.max(hollow_matrix(neighbor_matrix), axis=1))[-n_sample // 2:].astype(int)
+                #     ])
+                start_inds = np.argsort(outlier_detection_pca(X0, cutoff=0.95))[:self.n_samples_pseudotime]
             elif self.sampling_method_pseudotime == "shifted_random":
                 interval = (ntime - ndim) // n_sample
                 shifts = np.random.choice(np.arange(interval), n_sample)
@@ -915,18 +948,69 @@ class RecurrenceManifold(RecurrenceModel):
                 start_inds += shifts
             else:
                 warnings.warn("Sampling method not recognized, defaulting to random.")
-                start_inds = np.random.choice(np.arange(ntime - ndim), n_sample, replace=False)
+                start_inds = np.random.choice(
+                    np.arange(ntime - ndim), 
+                    n_sample, 
+                    replace=False
+                )
+            start_inds = np.append(start_inds, root_index) ## root finding heuristic
+            
+
             all_labels = list()
             for ind in start_inds:
                 pt_vals = find_pseudotime(neighbor_matrix, ind)             
                 all_labels.append(pt_vals)
                 print(".", end="", flush=True)
             all_labels = np.array(all_labels)
-            #all_labels = np.vstack([all_labels, 1 - all_labels]) # symmetry
-            weights = nan_pca(all_labels.T)[0]
-            #kv = min(len(weights), 10)
-            #weights = zero_topk(weights, k=kv, magnitude=True)
-            pt_vals = np.dot(all_labels.T, weights)
+            all_labels = np.array([nan_fill(item) for item in all_labels]) ##
+
+            # weights: pseudotime uniformity
+            # jitter_vals = np.var(np.diff(np.sort(all_labels, axis=1), axis=1), axis=1)
+            even_spacing = np.linspace(0, 1, all_labels.shape[1])
+            jitter_vals = np.sum(
+                (np.sort(all_labels, axis=1) - even_spacing[None, :])**2,
+                axis=1
+            )
+            data_weights = 1 / (jitter_vals + 1e-6)
+            data_weights = data_weights / np.sum(data_weights)
+            data_weights = None
+
+
+            ## pick slowest labeling to avoid artifacts of bad starting point
+            all_freqs = list()
+            for labels in all_labels:
+                freqs, wgts = find_psd(nan_fill(labels))
+                all_freqs.append(np.sum(freqs * wgts) / np.sum(wgts))
+            
+
+            
+            #weights = nan_pca(all_labels.T, weights=data_weights)[0]
+            #pt_vals = np.dot(all_labels.T, weights)
+
+            pt_vals = PCA(whiten=True).fit_transform(all_labels.T)[:, 0]
+
+            ### ADDED
+            self.all_labelings = all_labels
+
+            ## pick slowest labeling to avoid artifacts of bad starting point
+            # sel_ind = np.argmin(all_freqs)
+            # pt_vals = all_labels[sel_ind]
+
+            ## pick max norm labeling
+            #sel_ind = np.argmax(np.nanmean(all_labels, axis=1))
+
+            ## pick jitter labeling
+            # sel_ind =  np.argmin(
+            #     np.mean(np.abs(np.diff(all_labels, axis=1)), axis=1)
+            # )
+            
+            
+            #sel_ind = np.argmin(jitter_vals)
+
+
+            # sel_ind = np.argmin(gini_skew) ## can take weighted average as well
+                    
+            #pt_vals = all_labels[sel_ind]
         else:
             pt_vals = find_pseudotime(neighbor_matrix, root_index)
         print("\n")

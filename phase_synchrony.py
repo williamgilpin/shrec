@@ -1,7 +1,7 @@
 """
 Instantaneous phase synchrony using the Hilbert transform
 
-Adapted from Jin Hyun Cheong
+Adapted from code originally developed by Jin Hyun Cheong
 """
 from scipy.signal import hilbert, butter, filtfilt
 from scipy.fftpack import fft,fftfreq,rfft,irfft,ifft

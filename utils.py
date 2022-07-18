@@ -20,12 +20,23 @@ def curr_time():
     """Print current time"""
     print("Current Time: ", get_time(), flush=True)
     
-def nan_pca(X):
+def nan_pca(X, weights=None):
     """
     Perform pca on a data matrix with missing values
+
+    Args:
+        X (array): A data matrix with shape (N, D)
+        weights (array): A weight matrix with shape N,
     """
-    X = X - np.nanmean(X, axis=0, keepdims=True)
-    cov = np.nanmean(X[..., None] * X[:, None, :], axis=0)
+    print("wPCA", X.shape, flush=True)
+    if weights is None:
+        weights = np.ones(X.shape[1])
+    w_sum = np.nansum(weights)
+    w_mat = np.diag(weights)
+    X_mean = (1 / w_sum) * np.nansum(weights * X, axis=0, keepdims=True)
+    X = X - X_mean
+    print(X.shape, w_mat.shape)
+    cov = (1 / w_sum) * np.nansum(X[..., None] * w_mat.dot(X.T).T[:, None, :], axis=0)
     eigs, vecs = np.linalg.eigh(cov)
     eigs, vecs = eigs[::-1], vecs[::-1]
     return vecs
@@ -34,6 +45,10 @@ def nan_pca(X):
 def discretize_signal(signal, max_states=50):
     """
     Given a continuous signal, discretize into a finite number of states
+
+    Args:
+        signal (array): A signal with shape (T, D)
+        max_states (int): The maximum number of states to use
     """
     n = len(signal)
     _, bins = np.histogram(signal, max_states)
@@ -61,6 +76,11 @@ def discretize_signal(signal, max_states=50):
 def zero_topk(a, k=1, magnitude=False):
     """
     Return a copy of a vector with all components except the top k set equal to zero
+
+    Args:
+        a (array): A vector with shape (D,)
+        k (int): The number of components to zero
+        magnitude (bool): If True, zero everything but the top k components
     """
     a2 = np.zeros_like(a)
     if magnitude:
@@ -217,14 +237,65 @@ def standardize_ts(a, scale=1.0, median=False):
     ts_scaled = (a - center) / (scale * stds)
     return np.squeeze(ts_scaled)
 
+def minmax_ts(a, clipping=None):
+    """MinMax scale an array along dimension -2
+    For dimensions with zero variance, divide by one instead of zero
+    
+    Args:
+        a (ndarray): a matrix containing a time series or batch of time series
+            with shape (T, D) or (B, T, D)
+        clipping (float): A number between 0 and 1, the range of values 
+            to use for rescaling
+    
+    Returns:
+        ts_scaled (ndarray): A minmax scaled time series with the same shape as 
+            the input
+    """
+    a = lift_ts(a)
+    
+    if clipping:
+        minval = np.percentile(a, clipping * 100, axis=-2, keepdims=True)
+        maxval = np.percentile(a, (1 - clipping) * 100, axis=-2, keepdims=True)       
+    else:
+        minval = np.min(a, axis=-2, keepdims=True)
+        maxval = np.max(a, axis=-2, keepdims=True)
+    spans = (maxval - minval)   
+    spans[spans==0] = 1
+    ts_scaled = (a - minval) / spans
+    return np.squeeze(ts_scaled)
+
+def embed_ts(X, m, padding=None):
+    """
+    Create a time delay embedding of a time series or a set of time series
+
+    Args:
+        X (array-like): A matrix of shape (n_timepoints, n_dims) or 
+            of shape (n_timepoints)
+        m (int): The number of dimensions
+
+    Returns:
+        Xp (array-like): A time-delay embedding
+    """
+    if padding:
+        if len(X.shape) == 1:
+            X = np.pad(X, [m, 0], padding)
+        if len(X.shape) == 2:
+            X = np.pad(X, [[m, 0], [0, 0]], padding)
+        if len(X.shape) == 3:
+            X = np.pad(X, [[0, 0], [m, 0], [0, 0]], padding)
+    Xp = hankel_matrix(X, m)
+    Xp = np.moveaxis(Xp, (0, 1, 2), (1, 2, 0))
+    return Xp
+
+
 def hankel_matrix(data, q, p=None):
     """
     Find the Hankel matrix dimensionwise for multiple multidimensional 
     time series
     
     Args:
-        data (ndarray): An array of shape (N, T, 1) or (N, T, D) corresponding to a collection 
-            of N time series of length T and dimensionality D
+        data (ndarray): An array of shape (N, T, 1) or (N, T, D) corresponding to a 
+            collection of N time series of length T and dimensionality D
         q (int): The width of the matrix (the number of features)
         p (int): The height of the matrix (the number of samples)
         
@@ -335,10 +406,8 @@ import itertools
 
 def graph_from_associations(mat, weighted=False):
     """
-    Given an association matrix, create a graph
-    All non-zero elements occurring within a 
-    row are assumed to be densely connected to
-    eachother, forming a clique
+    Given an association matrix, create a graph of all non-zero elements occurring 
+    within a row are assumed to be densely connected to eachother, forming a clique
     
     Example:
     [0, 1, 1],
@@ -422,9 +491,8 @@ def adjmat_from_associations(mat, weighted=False, use_sparse=False):
 
 def graph_threshold(g, threshold=1.0):
     """
-    Given a weighted graph, return an
-    unweighted graph defined by thresholding the
-    edges
+    Given a weighted graph, return an unweighted graph defined by 
+    thresholding the edges
     """
     h = nx.Graph()
     for u, v, d in g.edges(data=True):
@@ -487,6 +555,32 @@ def sparsify(a0, sparsity, weighted=False):
     return a
 
 
+from sklearn.decomposition import PCA
+def outlier_detection_pca(X, cutoff=0.95):
+    """
+    Detect outliers in a dataset using PCA.
+
+    Args:
+        X (array): Dataset of shape (n_samples, n_features)
+        cutoff (float): cutoff between 0 and 1 for variance used for outlier detection
+
+    Returns:
+        scores (array): scores of shape (n_samples,)
+
+    """
+    pca = PCA()
+    wv = pca.fit_transform(X)
+    #print(wv.shape)
+    sel_inds = np.cumsum(pca.explained_variance_ratio_) < cutoff
+    #print(sel_inds.shape)
+    pc = pca.components_
+    pc_truncated = pc[sel_inds]
+    
+    X_recon = np.dot(wv[:, sel_inds], pc[sel_inds])
+
+    scores = np.linalg.norm(X - X_recon, axis=-1)
+    return scores
+
 ## Baselines
 
 import sklearn.metrics
@@ -495,6 +589,13 @@ def evaluate_clustering(labels_true, labels_pred):
     """
     Given a set of known and predicted cluster labels, compute a set of cluster quality 
     metrics that is invariant to permutations
+
+    Args:
+        labels_true (array): true cluster labels
+        labels_pred (array): predicted cluster labels
+
+    Returns:
+        dict: A dictionary of cluster quality metrics
     """
     metric_names = ["rand_score",
                     "adjusted_rand_score",

@@ -15,6 +15,8 @@ from scipy.stats import spearmanr, pearsonr, kendalltau
 from darts import TimeSeries
 import darts.metrics.metrics
 
+import dtw
+
 from mutual_info import mutual_information, conditional_information
 from phase_synchrony import sync_average, find_instaneous_sync
 
@@ -46,8 +48,8 @@ def score_ts(true_y, pred_y):
     Score a pair of time series
     """
     true_yn, pred_yn = (
-        np.squeeze(standardize_ts(true_y[:, None])), 
-        np.squeeze(standardize_ts(pred_y[:, None]))
+        np.squeeze(standardize_ts(true_y)), 
+        np.squeeze(standardize_ts(pred_y))
     )
     metric_list = [
         #'coefficient_of_variation',
@@ -82,13 +84,14 @@ def score_ts(true_y, pred_y):
     
     true_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(true_y)))
     pred_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(pred_y)))
+    pred_y_df_neg = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(-pred_y)))
     for metric_name in metric_list:
         metric_func = getattr(darts.metrics.metrics, metric_name)
         try:
             if metric_name in ['r2_score']:
-                scores[metric_name] = max(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, -pred_y_df))
+                scores[metric_name] = max(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, pred_y_df_neg))
             else:
-                scores[metric_name] = min(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, -pred_y_df))
+                scores[metric_name] = min(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, pred_y_df_neg))
         except:
             print(metric_name, " Skipped")
     
@@ -110,6 +113,9 @@ def score_ts(true_y, pred_y):
     
     
     scores["cross forecast error neural 2"] = cross_forecast(pred_y, true_y, model="mlp")
+
+    scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
+    
     
     return scores
 
