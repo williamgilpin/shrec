@@ -724,6 +724,7 @@ class RecurrenceClustering(RecurrenceModel):
         dist_mat_bin = sparsify(dist_mat_bin, (1 - self.tolerance), weighted=self.weighted_connectivity)
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
         neighbor_matrix = dist_mat_bin 
+
         indices, labels = _leiden(
             neighbor_matrix,
             resolution=self.resolution,
@@ -747,6 +748,9 @@ class RecurrenceClustering(RecurrenceModel):
         #         self.labels_ = labels
         self.has_unclassified = np.any(self.labels_ < 0)
         self.n_clusters = len(np.unique(self.labels_)) - self.has_unclassified
+
+        if self.store_adjacency_matrix:
+            self.adjacency_matrix = neighbor_matrix
 
     def get_driving(self, X):
         """
@@ -931,16 +935,57 @@ class RecurrenceManifold(RecurrenceModel):
                 start_inds = np.linspace(0, ntime - ndim, n_sample).astype(int)
             elif self.sampling_method_pseudotime == "deterministic_extreme":
                 print("test", flush=True)
-                start_inds = np.argsort(np.min(neighbor_matrix, axis=1))[:n_sample].astype(int) # could try percentile
+                scores = outlier_detection_pca(X0)
+                start_inds = np.argsort(scores)[:self.n_samples_pseudotime]
                 
-                xi, _ = np.unravel_index(np.argsort(np.ravel(neighbor_matrix)), (neighbor_matrix.shape))
-                start_inds = xi[:n_sample].astype(int)
+                # np.random.seed(self.random_state)
+                # probs = scores / np.sum(scores)
+                # #probs = (1 / scores) / np.sum(1 / scores)
+                # start_inds = np.random.choice(
+                #     np.arange(len(scores)), 
+                #     20, 
+                #     p=probs, 
+                #     replace=True
+                # )
+
+                # probs_s = np.sort(probs)[::-1]
+                # pval = 1 * (1 / len(probs))
+                # where_peaks = (np.cumsum(probs_s) <= max(pval, probs_s[0])) # edge case where density concentrated in first element
+                # # upper bound on the number of values
+                # where_peaks[self.n_samples_pseudotime:] = False
+                # cutoff = np.min(probs_s[where_peaks])
+                # start_inds = np.where(probs >= cutoff)[0]
+
+                # probs_s = np.sort(probs)
+                # where_peaks = (np.cumsum(probs_s) <= max(0.95, probs_s[0])) # edge case where density concentrated in first element
+                # # upper bound on the number of values
+                # where_peaks[self.n_samples_pseudotime:] = False
+                # cutoff = np.min(probs_s[where_peaks])
+                # start_inds = np.where(probs <= cutoff)[0]
+
+                # self.stuff = probs, probs_s, where_peaks, start_inds
+
+                # start_inds = np.random.choice(
+                #     np.arange(len(scores)), 
+                #     20, 
+                #     p = scores / np.sum(scores), 
+                #     replace=True
+                # )
+
+                # percentile_idx = max(2, min(int(0.05 * len(scores)), len(scores) - 2))
+                # percentile_val = np.sort(scores)[percentile_idx]
+                # start_inds = np.where(scores <= percentile_val)[0]
+                # start_inds = np.random.choice(start_inds, min(20, len(start_inds)), replace=True)
+
+                #start_inds = np.argsort(np.min(neighbor_matrix, axis=1))[:n_sample].astype(int) # could try percentile
+                #xi, _ = np.unravel_index(np.argsort(np.ravel(neighbor_matrix)), (neighbor_matrix.shape))
+                #start_inds = xi[:n_sample].astype(int)
                 # start_inds = np.argsort(np.max(hollow_matrix(neighbor_matrix), axis=1))[-n_sample:].astype(int) # percentile
                 # start_inds = np.hstack([
                 #     np.argsort(np.min(neighbor_matrix, axis=1))[:n_sample // 2].astype(int), 
                 #     np.argsort(np.max(hollow_matrix(neighbor_matrix), axis=1))[-n_sample // 2:].astype(int)
                 #     ])
-                start_inds = np.argsort(outlier_detection_pca(X0, cutoff=0.95))[:self.n_samples_pseudotime]
+                
             elif self.sampling_method_pseudotime == "shifted_random":
                 interval = (ntime - ndim) // n_sample
                 shifts = np.random.choice(np.arange(interval), n_sample)
@@ -953,9 +998,9 @@ class RecurrenceManifold(RecurrenceModel):
                     n_sample, 
                     replace=False
                 )
-            start_inds = np.append(start_inds, root_index) ## root finding heuristic
+            start_inds = np.append(start_inds, root_index) ## global root finding heuristic
             
-
+            ## Make labels from all roots
             all_labels = list()
             for ind in start_inds:
                 pt_vals = find_pseudotime(neighbor_matrix, ind)             
@@ -966,14 +1011,14 @@ class RecurrenceManifold(RecurrenceModel):
 
             # weights: pseudotime uniformity
             # jitter_vals = np.var(np.diff(np.sort(all_labels, axis=1), axis=1), axis=1)
-            even_spacing = np.linspace(0, 1, all_labels.shape[1])
-            jitter_vals = np.sum(
-                (np.sort(all_labels, axis=1) - even_spacing[None, :])**2,
-                axis=1
-            )
-            data_weights = 1 / (jitter_vals + 1e-6)
-            data_weights = data_weights / np.sum(data_weights)
-            data_weights = None
+            # even_spacing = np.linspace(0, 1, all_labels.shape[1])
+            # jitter_vals = np.sum(
+            #     (np.sort(all_labels, axis=1) - even_spacing[None, :])**2,
+            #     axis=1
+            # )
+            # label_weights = 1 / (jitter_vals + 1e-6)
+            # label_weights /= np.sum(label_weights)
+            
 
 
             ## pick slowest labeling to avoid artifacts of bad starting point
@@ -981,15 +1026,21 @@ class RecurrenceManifold(RecurrenceModel):
             for labels in all_labels:
                 freqs, wgts = find_psd(nan_fill(labels))
                 all_freqs.append(np.sum(freqs * wgts) / np.sum(wgts))
-            
+            all_freqs = np.array(all_freqs)
+            label_weights = 1 / (all_freqs + 1e-16)
+            label_weights /= np.sum(label_weights)
 
             
             #weights = nan_pca(all_labels.T, weights=data_weights)[0]
             #pt_vals = np.dot(all_labels.T, weights)
 
+            
+            all_labels *= label_weights[:, None]
+
             pt_vals = PCA(whiten=True).fit_transform(all_labels.T)[:, 0]
 
             ### ADDED
+            self.all_roots = start_inds
             self.all_labelings = all_labels
 
             ## pick slowest labeling to avoid artifacts of bad starting point

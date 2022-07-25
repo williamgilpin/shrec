@@ -288,6 +288,7 @@ def embed_ts(X, m, padding=None):
     return Xp
 
 
+
 def hankel_matrix(data, q, p=None):
     """
     Find the Hankel matrix dimensionwise for multiple multidimensional 
@@ -378,6 +379,30 @@ def community_list_to_labels(community_list):
 
 
 ## NetworkX utilities
+
+import networkx as nx
+def largest_connected_component(g):
+    """Return the scaled largest connected component of a graph."""
+    n = g.number_of_nodes()
+    giant = max(nx.connected_components(g), key=len)
+    lcc = len(giant) / n
+    return lcc
+
+def susceptibility_smallcomponents(g):
+    """Return the susceptibility of a graph based on the size of small components."""
+    n = g.number_of_nodes()
+    all_components = np.array([len(c) for c in sorted(nx.connected_components(g), key=len, reverse=True)])
+    return np.sum(all_components[1:]**2) / n
+
+def susceptibility_subleading(g):
+    """Return the susceptibility of a graph based on the size of largest subleading 
+    component."""
+    n = g.number_of_nodes()
+    all_components = [len(c) for c in sorted(nx.connected_components(g), key=len, reverse=True)]
+    if len(all_components) > 1:
+        return all_components[1] / n
+    else:
+        return 0
 
 def sort_graph(g):
     """
@@ -527,8 +552,39 @@ def sparsity(a):
         sparsity = 1.0 - (np.count_nonzero(a) / float(a.size))
     return sparsity
 
+def otsu_threshold(data0):
+    """
+    Calculate the Otsu threshold of a dataset
+    """
+    data = np.ravel(np.copy(data0))
+    n = len(data)
+    #nbins = np.sqrt(n)
+    nbins = int(round(1 + np.log2(n)))
 
-def sparsify(a0, sparsity, weighted=False):
+    data = np.sort(data)[::-1]
+    
+    hist, bins = np.histogram(data, nbins)
+    bins = bins[:-1] + (bins[1] - bins[0]) / 2 # center bins
+    hist = hist.astype(float)
+    hist /= np.sum(hist) # normalized
+
+    bin_index, cross_var_highest = nbins // 2, -1
+    for i in np.arange(1, nbins - 1):
+        pleft, pright = np.sum(hist[:i]), np.sum(hist[i:])
+
+        mean_left = np.sum(hist[:i] * bins[:i])  / pleft
+        mean_right = np.sum(hist[i:] * bins[i:]) / pright
+
+        cross_var = pleft * pright * (mean_left - mean_right) ** 2
+
+        if cross_var_highest < cross_var:
+            bin_index = i
+            cross_var_highest = cross_var
+            
+    return bins[bin_index]
+
+
+def sparsify(a0, sparsity=None, weighted=False):
     """
     Binarize a matrix by thresholding its values, resulting in a matrix with a given
     sparsity. 
@@ -538,12 +594,15 @@ def sparsify(a0, sparsity, weighted=False):
     
     Args:
         a0 (array-like): an array to binarize
-        sparsity (float): the target fraction of zeros in the output array
+        sparsity (float or None): the target fraction of zeros in the output array. If
+            no sparsity is given, a threshold is calculated based on the Otsu method.
         weighted (bool): Whether to keep sparse-elements or zet them equal to one
     
     Returns
         a (array-like): A binary matrix
     """
+    if sparsity is None:
+        sparsity = otsu_threshold(a0)
     a = a0.copy()
     denom = np.sum(np.ones_like(a))
     thresh = np.percentile(np.ravel(np.abs(a)), 100 * sparsity, interpolation="higher")

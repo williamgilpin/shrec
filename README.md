@@ -6,11 +6,6 @@ The **sh**ared **rec**urrence method for identifying causal drivers of time seri
 
 _mwe here_
 
-## TODO
-
-+ Try Box-Cox transform
-+ + https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.boxcox.html
-
 
 ## Installation
 
@@ -38,5 +33,9 @@ Additional dependencies for certain demonstrations
 + matplotlib 
 + seaborn
 
+
+## Development
+
+We welcome any advice or improvments. Please feel free to reach reach out, raise issues, or submit pull requests!
 
 
