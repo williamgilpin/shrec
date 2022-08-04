@@ -4,7 +4,7 @@ The **sh**ared **rec**urrence method for identifying causal drivers of time seri
 
 ## Usage
 
-_mwe here_
+from shrec.models import 
 
 
 ## Installation

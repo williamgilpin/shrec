@@ -210,6 +210,7 @@ def lift_ts(a, target=2):
     else:
         return a
 
+
 from scipy.stats import iqr
 def standardize_ts(a, scale=1.0, median=False):
     """Standardize an array along dimension -2
@@ -263,6 +264,7 @@ def minmax_ts(a, clipping=None):
     spans[spans==0] = 1
     ts_scaled = (a - minval) / spans
     return np.squeeze(ts_scaled)
+
 
 def embed_ts(X, m, padding=None):
     """

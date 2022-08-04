@@ -60,30 +60,6 @@ def solve(lists):
     groups = disjoint.groups()
     return [lst and groups[disjoint.find(lst[0])] for lst in lists]
 
-
-# def _embed(X, m, padding=None):
-#     """
-#     Create a time delay embedding of a time series or a set of time series
-
-#     Args:
-#         X (array-like): A matrix of shape (n_timepoints, n_dims) or 
-#             of shape (n_timepoints)
-#         m (int): The number of dimensions
-
-#     Returns:
-#         Xp (array-like): A time-delay embedding
-#     """
-#     if padding:
-#         if len(X.shape) == 1:
-#             X = np.pad(X, [m, 0], padding)
-#         if len(X.shape) == 2:
-#             X = np.pad(X, [[m, 0], [0, 0]], padding)
-#         if len(X.shape) == 3:
-#             X = np.pad(X, [[0, 0], [m, 0], [0, 0]], padding)
-#     Xp = hankel_matrix(X, m)
-#     Xp = np.moveaxis(Xp, (0, 1, 2), (1, 2, 0))
-#     return Xp
-
 import scanpy as sc
 def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
     """

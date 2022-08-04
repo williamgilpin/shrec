@@ -4,8 +4,13 @@ private*
 
 ### Temporary Files created by text editor###
 *~
-nft/
+.vscode
 big_data/
+
+
+### dev files
+*private
+*dump
 
 ### Large storage files
 *.pkl

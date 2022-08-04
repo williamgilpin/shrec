@@ -6,14 +6,14 @@ import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-from .causal_cnn import CausalCNNEncoder, CausalConvolutionBlock
+from causal_cnn import CausalCNNEncoder, CausalConvolutionBlock
 
 
 class UnivariateTimeSeries(Dataset):
     """
     A dataset representation for univariate time series
     
-    Args:
+    Arguments:
         ts (np.ndarray): A time series dataset of length T
     """
 
@@ -33,9 +33,9 @@ class UnivariateTimeSeries(Dataset):
 
 class TimeSeriesCollection(Dataset):
     """
-    A dataset representation for a collection time series
+    A dataset representation for a collection of time series
     
-    Args:
+    Arguments:
         ts (np.ndarray): A time series dataset of shape T x D
     """
 
@@ -60,20 +60,24 @@ class TimeSeriesCollection(Dataset):
 class Autoencoder(nn.Module):
     """
     A causal dilated autoencoder for time series
-    """
 
-    def __init__(self):
+    Attributes:
+        latent_size (int): The size of the latent space
+
+    """
+    def __init__(self, latent_size=8):
         super(Autoencoder, self).__init__()
+        self.latent_size = latent_size
 
         self.encoder = nn.Sequential(
             # nn.Conv1d(1, 16, kernel_size=5, stride=3, padding=2),  # b, 16, 10, 10
             CausalConvolutionBlock(1, 16, 3, 2, final=False),
             #             CausalConvolutionBlock(16, 8, 3, 2, final=False),
-            nn.Conv1d(16, 8, kernel_size=3, stride=3, padding=1),  # b, 8, 3, 3
+            nn.Conv1d(16, self.latent_size, kernel_size=3, stride=3, padding=1),  # b, 8, 3, 3
         )
         self.decoder = nn.Sequential(
             nn.ConvTranspose1d(
-                8, 16, kernel_size=3, stride=1, padding=1
+                self.latent_size, 16, kernel_size=3, stride=1, padding=1
             ),  # b, 16, 5, 5
             nn.ELU(True),
             nn.ConvTranspose1d(
