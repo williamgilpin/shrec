@@ -4,7 +4,8 @@ private*
 
 ### Temporary Files created by text editor###
 *~
-.vscode
+.vscode/
+.vscode/*
 big_data/
 
 

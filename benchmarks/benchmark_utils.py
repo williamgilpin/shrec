@@ -2,7 +2,7 @@ import numpy as np
 import scipy
 import warnings
 
-from utils import *
+from shrec.utils import *
 
 
 import pandas as pd

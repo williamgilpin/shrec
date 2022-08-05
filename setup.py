@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-setup(name = 'shred',
+setup(name = 'shrec',
       packages=['shrec'],
       version='0.1',
       # packages=find_packages(),
@@ -10,6 +10,6 @@ setup(name = 'shred',
         "matplotlib": ["matplotlib"],
         "seaborn": ["seaborn"]
       },
-      package_dir={'shrec': 'shred'},
+      package_dir={'shrec': 'shrec'},
       package_data={'shrec': ['data/*']},
      )
