@@ -567,6 +567,109 @@ def multigraph_to_weighted(g):
     out_g = nx.Graph(adj)
     return out_g
 
+
+
+def merge_labels(labels_list, labels, label_merge="majority"):
+    """
+    Given a jagged list of labels, merge them into a single list of labels.
+
+    Args:
+        labels_list (list): A list of lists of labels.
+        labels (list): A list of labels.
+        label_merge (str): How to merge labels. Options are "majority" and "average".
+
+    Returns:
+        labels_consolidated (list): A list of labels for the merged network
+    """
+
+    labels_consolidated = list()
+    for item in labels_list:
+        if np.isscalar(item):
+            labels_consolidated.append(labels[item])
+        else:
+            votes = list()
+            for item2 in item:
+                # votes.append(np.argmax(np.bincount(item2)))
+                votes.append(labels[item2])
+
+            if label_merge == "majority":
+                consensus = np.argmax(np.bincount(votes))
+                labels_consolidated.append(votes[consensus])
+            elif label_merge == "average":
+                labels_consolidated.append(np.mean(votes))
+            else:
+                consensus = np.argmax(np.bincount(votes))
+                labels_consolidated.append(votes[consensus])
+
+    return labels_consolidated
+
+def compress_adjacency(amat0, n_target, return_labels=False, label_merge="majority"):
+    """
+    Consolidate a network by merging correlated nodes.
+
+    Args:
+        amat0 (np.ndarray): Adjacency matrix of the network to be compressed.
+        n_target (int): Number of nodes desired for the output network
+        labels (np.ndarray | None): If labels are passed, the labels are matched to the 
+            compressed network by taking the most common label of the nodes that were 
+            merged.
+
+    Returns:
+        amat (np.ndarray): Compressed adjacency matrix
+        labels (np.ndarray): Labels of the compressed network
+    
+    """
+
+    amat = np.copy(amat0)
+    all_labels = np.arange(amat.shape[0])
+
+    # drop unconnected components
+    where_unconnected = np.isclose(np.sum(np.abs(amat), axis=0), 0)
+    amat = amat[np.logical_not(where_unconnected)]
+    amat = amat[:, np.logical_not(where_unconnected)]
+    amat = hollow_matrix(amat)
+    
+    all_labels = all_labels[np.logical_not(where_unconnected)].tolist()
+    
+
+    n_steps = max(amat.shape[0] - n_target, 0)
+    
+    for step_ind in range(n_steps):
+
+        if step_ind % (n_steps // 20) == 0:
+            print(100 * step_ind / n_steps, end=" ")
+        
+        amat_m = amat - np.mean(amat, axis=0, keepdims=True)
+        corr_top = np.dot(amat_m , amat_m .T)
+       
+        scales = np.linalg.norm(amat_m,  axis=0)**2
+        scales_matrix = scales[:, None] * scales[None, :]
+
+        pearson_matrix = corr_top / np.sqrt(scales_matrix)
+        pearson_matrix = hollow_matrix(pearson_matrix)
+
+        merge_inds = np.unravel_index(np.argmax(np.ravel(pearson_matrix)), pearson_matrix.shape)
+
+        amat[merge_inds[0]] += amat[merge_inds[1]]
+        amat[:, merge_inds[0]] += amat[:, merge_inds[1]]
+
+        all_labels[merge_inds[0]] = np.hstack([
+            np.squeeze(np.array(all_labels[merge_inds[0]])), 
+            np.squeeze(np.array(all_labels[merge_inds[1]]))
+        ]).tolist()
+
+        all_labels = np.delete(all_labels, merge_inds[1])
+        amat = np.delete(amat, merge_inds[1], axis=0)
+        amat = np.delete(amat, merge_inds[1], axis=1)
+
+    if return_labels:
+        return amat, all_labels
+    else:
+        return amat
+        
+
+
+
 import scipy
 def sparsity(a):
     """Compute the sparsity of a matrix"""
