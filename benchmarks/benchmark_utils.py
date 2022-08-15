@@ -1,10 +1,5 @@
 import numpy as np
-import scipy
 import warnings
-
-from shrec.utils import *
-
-
 import pandas as pd
 import warnings
 import numpy as np
@@ -14,23 +9,149 @@ from scipy.stats import spearmanr, pearsonr, kendalltau
 
 from darts import TimeSeries
 import darts.metrics.metrics
+import dtw; # suppress stdout
 
-import dtw
+from shrec.utils import *
 
+import os
+
+# Hack to solve relative import problems
+import os
+import sys
+cwd = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(cwd)
 from mutual_info import mutual_information, conditional_information
-from phase_synchrony import sync_average, find_instaneous_sync
+from phase_synchrony import sync_average
 
 def print_dict(a):
     for row in a:
         print(np.round(a[row], 2), row, flush=True)
     print("\n")
+
+class DrivenLorenz:
+    """
+    An ensemble of Lorenz systems driven by an external signal
+
+    Parameters
+        random_state (int): seed for the random number generator
+        driver (str): type of driver, either "rossler" or "periodic"
+    """
+    def __init__(self, random_state=None, driver="rossler"):
+        
+        # driver properties
+        self.ad = 0.5
+        self.n = 5.3
+        self.r = 1
+
+        if driver == "rossler":
+            self.rhs_driver = self._rhs_rossler
+        elif driver == "periodic":
+            self.rhs_driver= self._rhs_periodic
+        else:
+            warnings.warn("Unknown driver type, defauling to Rossler")
+            self.rhs_driver= self._rhs_rossler
+        
+        # response properties
+#         self.ar = 1.2
+#         self.mu = 8.53
+#         self.w = 0.63
+        self.rho = 28
+        self.beta = 2.667
+        self.sigma = 10
+        
+        self.n_drive = 3
+        self.n_response = 3
+        
+        ## rossler
+        self.a = 0.2
+        self.b = 0.2
+        self.c = 5.7
+        
+        np.random.seed(random_state)
+        self.n_sys = 24
+        self.rho = 28 * (1 + 0.5*(np.random.random(self.n_sys) - 0.5))
+        self.beta = 2.667 * (1 + 0.1*(np.random.random(self.n_sys) - 0.5))
+        self.sigma = 10 * (1 + 0.1*(np.random.random(self.n_sys) - 0.5))
+        
+
+        self.n_sys = 12 * 3 * 2 * 4
+        self.rho = 28 * (1 + 1 + 0.5*(np.random.random(self.n_sys) - 0.5))
+        self.beta = 2.667 * (1 + 0.1*(np.random.random(self.n_sys) - 0.5))
+        self.sigma = 10 * (1 + 0.1*(np.random.random(self.n_sys) - 0.5))
+        
+        
+        
+        self.rho = 28 * (1 + 1 + 0.1 * (np.random.random(self.n_sys) - 0.5))
+        self.beta = 2.667 * (1 + 0.1 * (np.random.random(self.n_sys) - 0.5))
+        self.sigma = 10 * (1 + 2 * (np.random.random(self.n_sys) - 0.5))
+        
+        
+        self.rho = 28 * (1 + 5 * (np.random.random(self.n_sys)))
+        self.beta = 2.667 * (1 +  0.1 * (np.random.random(self.n_sys)))
+        self.sigma = 10 * (1 + 20 * (np.random.random(self.n_sys) ))
+        
+        
+        
+        self.rho = 28 * (1 + 2 * 5 * (np.random.random(self.n_sys)))
+        self.beta = 2.667 * (1 +  2 * 1 * (np.random.random(self.n_sys)))
+        self.sigma = 10 * (1 + 2 * 10 * (np.random.random(self.n_sys) ))
+        
+
+    def _rhs_periodic(self, t, X):
+        """Simple periodic driver"""
+        x, y, z = X
+        a, n, r = self.ad, self.n, self.r
+        xdot = a * 15 * np.sin(t / 2) - x
+        ydot =  a * 15 * np.sin(t / 2) - y
+        zdot =  a * 15 * np.sin(t / 2) - z
+        return xdot, ydot, zdot
+
+    def _rhs_rossler(self, t, X):
+        """Rossler driving (aperiodic)"""
+        x, y, z = X
+        a, b, c = self.a, self.b, self.c
+        xdot = -y - z
+        ydot = x + a * y
+        zdot = b + z * (x - c)
+        return xdot * 0.5, ydot * 0.5, zdot * 0.5
     
+    def rhs_response_ensemble(self, t, X):
+        """Response system
+
+        Args:
+            t (float): time
+            X (np.ndarray): state vector
+
+        Returns:
+            np.ndarray: derivative of the state vector
+        """
+        
+        Xd = X[:self.n_drive]
+        Xr = X[self.n_drive:]
+        
+        xd, yd, zd = Xd
+        x, y, z = Xr[:self.n_sys], Xr[self.n_sys:2*self.n_sys], Xr[2 * self.n_sys:]
+
+        xdot = self.sigma * (y - x) + self.ar * xd
+        ydot = x * (self.rho - z) - y # - self.ar * xd
+        zdot = x * y - self.beta * z
+        return np.hstack([xdot, ydot, zdot])
     
-    
-import numpy as np
+    def rhs(self, t, X):
+        """Full system
+
+        Args:
+            t (float): time
+            X (np.ndarray): state vector
+
+        Returns:
+            np.ndarray: derivative of the state vector
+        """
+        return [*self.rhs_driver(t, X[:self.n_drive]), *self.rhs_response_ensemble(t, X)]
 
 
 def fft_phase(a):
+    """Compute the phase of the FFT of a signal"""
     ns = len(a)
     af = np.fft.fft(a)
     af = af / np.abs(af)
@@ -39,14 +160,13 @@ def fft_phase(a):
     return angs
      
 def coherence_phase(a, b, freq=1, FS=1):
+    """Compute the phase of the coherence between two signals"""
     ap, bp = fft_phase(a), fft_phase(b)
     return np.sqrt((np.cos(ap) + np.cos(bp))**2 + (np.sin(ap) + np.sin(bp))**2) / 2
 
 
 def score_ts(true_y, pred_y):
-    """
-    Score a pair of time series
-    """
+    """ Score a pair of time series"""
     true_yn, pred_yn = (
         np.squeeze(standardize_ts(true_y)), 
         np.squeeze(standardize_ts(pred_y))
@@ -135,7 +255,19 @@ def cross_forecast(ts_input, ts_target, tau=50,
     Currently, this function should only be used for linear
     models (such as for Granger causality) because it does not split train and test
     
-    split (float): the fraction of the data to use as a test split
+
+    Args:
+        ts_input (np.ndarray): The input time series of shape (N, D)
+        ts_target (np.ndarray): The target time series of shape (N, D)
+        tau (int): The number of timepoints to use for prediction
+        model (str): The model to use. Can be "ridge", "lasso", "gp", "rf", "mlp"
+        split (float): the fraction of the data to use as a test split
+        return_points (bool): Whether to return the points used for training
+        return_model (bool): Whether to return the trained model
+
+    Returns:
+        score (float): The cross forecast error
+        y_test_predict (np.ndarray): The predicted values
     
     Development
         add a train/test forecast split in order to faciliate training 
@@ -202,6 +334,14 @@ def cross_forecast_error(ts_reference, ts_predicted, tau_vals=[5, 10, 25, 50, 10
     """
     Compute the lowest cross-forecast error across a range of lookback timescales, and 
     report the best
+
+    Args:
+        ts_reference (np.ndarray): The reference time series of shape (N, D)
+        ts_predicted (np.ndarray): The predicted time series of shape (N, D)
+        tau_vals (list): The list of lookback timescales to test
+
+    Returns:
+        corr (float): The best cross-forecast error   
     """
     mse = np.inf
     corr = -np.inf
