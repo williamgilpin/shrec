@@ -164,6 +164,38 @@ def coherence_phase(a, b, freq=1, FS=1):
     ap, bp = fft_phase(a), fft_phase(b)
     return np.sqrt((np.cos(ap) + np.cos(bp))**2 + (np.sin(ap) + np.sin(bp))**2) / 2
 
+def score_ts2(true_y, pred_y):
+    """ Score a pair of time series"""
+    true_yn, pred_yn = (
+        np.squeeze(standardize_ts(true_y)), 
+        np.squeeze(standardize_ts(pred_y))
+    )
+
+
+    scores = dict()
+    
+    kval = 30
+    np.random.seed(0)
+    lo, hi = (
+        mutual_information((np.random.permutation(true_yn)[:, None],
+                            np.random.permutation(true_yn)[:, None]),
+                           k=kval
+                          ), 
+        mutual_information((true_yn[:, None], 
+                            true_yn[:, None]), 
+                           k=kval), 
+    )
+    mi = mutual_information((true_yn[:, None], pred_yn[:, None]), k=kval)
+    scores["mutual_info"] = (mi - lo) / (hi - lo)
+    
+    scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75)
+    #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75)
+    scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, model="mlp", split=0.75)
+    
+    scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
+    
+    return scores
+
 
 def score_ts(true_y, pred_y):
     """ Score a pair of time series"""
