@@ -1,7 +1,9 @@
-# This PyTorch implementation of the LFADS implementation is adapted from this repository:
-# https://github.com/lyprince/lfads_demo
-# 
+"""
+This LFADS implementation was taken from
+https://github.com/lyprince/lfads_demo
 
+Please cite the original authors if you use the LFADS portion of this repository
+"""
 
 import os
 import datetime

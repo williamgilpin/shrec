@@ -98,7 +98,7 @@ class CausalConvolutionBlock(torch.nn.Module):
     """
     def __init__(self, in_channels, out_channels, kernel_size, dilation,
                  final=False):
-        super(CausalConvolutionBlock, self).__init__()
+        super().__init__()
 
         # Computes left padding so that the applied convolutions are causal
         padding = (kernel_size - 1) * dilation

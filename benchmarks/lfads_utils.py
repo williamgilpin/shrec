@@ -1,3 +1,10 @@
+"""
+This LFADS implementation was taken from
+https://github.com/lyprince/lfads_demo
+
+Please cite the original authors if you use the LFADS portion of this repository
+"""
+
 import h5py
 import os
 import json
