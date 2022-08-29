@@ -552,7 +552,23 @@ def dict_to_vals(d):
     d_arr = np.array(d_arr)
     return d_arr, key_names
 
+def spherize_ts(X):
+    """Spherize a time series with PCA"""
+    X = X - np.mean(X, axis=0)
+    X = X.dot(PCA().fit(X).components_.T)
+    return X
 
+def whiten_zca(X):
+    """
+    Whiten a dataset with ZCA whitening (Mahalanobis whitening).
+    Args:
+        X: numpy array of shape (n_samples, n_features)
+    """
+    sigma = np.cov(X, rowvar=True)
+    U, S, V = np.linalg.svd(sigma)
+    zmat = np.dot(U, np.dot(np.diag(1.0/np.sqrt(S + 1e-6)), U.T))
+    X_out = np.dot(zmat, X)
+    return X_out
 
 ## NetworkX utilities
 

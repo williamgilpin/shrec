@@ -1,5 +1,5 @@
 import numpy as np
-import scipy
+# import scipy
 import warnings
 
 from shrec.utils import *
@@ -9,18 +9,54 @@ RANDOM_SEED = 0
 
 
 
-## Causal AE
 
 
-## PCA
+## CCA
 
+from sklearn.cross_decomposition import CCA
 
-## DCA
+class CCATimeSeries(CCA):
+    """
+    Canonical Correlation Analysis for time series data.
+
+    Parameters
+        n_components (int): number of components to keep
+        time_lag (int): number of time steps to lag the data
+        cca (sklearn.cross_decomposition.CCA): CCA object used internally
+        upsample (bool): whether to upsample the data to the same length as the input
+        pad (bool): whether to pad the data to the same length as the input
+    """
+    def __init__(self, n_components=2, time_lag=1, pad=True):
+        self.n_components = n_components
+        self.time_lag = time_lag
+        self.pad = pad
+
+        self.cca = CCA(n_components=n_components)
+
+    def fit(self, X):
+        """
+        Fit the model with X.
+
+        Args:
+            X (np.ndarray): Time series data of shape (n_timepoints, n_features)
+        """
+        Y = X[self.time_lag:]
+        X = X[:-self.time_lag]
+        self.cca.fit(X, Y)
+        return self
+
+    def transform(self, X):
+        Y = X[self.time_lag:]
+        X = X[:-self.time_lag]
+        Xc, Yc = self.cca.transform(X, Y)
+        #print(Xc.shape, Yc.shape)
+        if self.pad:
+            Xc = np.vstack([Xc, Xc[-self.time_lag:][::-1]])
+        return Xc
 
 
 ## Fourier
 
-import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 
 class FourierPCA(BaseEstimator, TransformerMixin):
