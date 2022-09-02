@@ -20,7 +20,8 @@ latent_dim_vals = [1, 5, 10, 20, 50]
 OUTPUT_DIR = './dump_results'
 SEED = 0
 
-train_data_name = "rat" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
+# train_data_name = "rat" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use
 DATA_DIR = './data'
@@ -44,9 +45,6 @@ hyperparams = {
 import itertools
 all_params = itertools.product(lr_vals, width_vals, latent_dim_vals)
 
-
-
-data_path = os.path.join(DATA_DIR, train_data_name + '_val.npz')
 fname_base = "all_signals_" + model_name +  "_" + train_data_name + "_"
 for params in all_params:
 

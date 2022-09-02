@@ -79,7 +79,7 @@ class FourierPCA(BaseEstimator, TransformerMixin):
         """Placeholder for sklearn compatibility"""
         return self
 
-    def transform(self, X):
+    def transform(self, X, y=None):
         """
         Transform a stack of input time series into a stack of Fourier-PCA features
         
