@@ -193,7 +193,7 @@ def score_ts2(true_y, pred_y):
     scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, model="mlp", split=0.75)
     
     scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
-    
+
     return scores
 
 
@@ -233,26 +233,32 @@ def score_ts(true_y, pred_y):
     scores["conditional_info_back"] = conditional_information(pred_y, true_y, k=kval)
     
     
-    
-    true_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(true_y)))
-    pred_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(pred_y)))
-    pred_y_df_neg = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(-pred_y)))
+    ## Special format for darts metrics
+    true_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(true_yn)))
+    pred_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(pred_yn)))
+    pred_y_df_neg = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(-pred_yn)))
     for metric_name in metric_list:
         metric_func = getattr(darts.metrics.metrics, metric_name)
         try:
             if metric_name in ['r2_score']:
-                scores[metric_name] = max(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, pred_y_df_neg))
+                scores[metric_name] = max(
+                    metric_func(true_y_df, pred_y_df), 
+                    metric_func(true_y_df, pred_y_df_neg)
+                )
             else:
-                scores[metric_name] = min(metric_func(true_y_df, pred_y_df), metric_func(true_y_df, pred_y_df_neg))
+                scores[metric_name] = min(
+                    metric_func(true_y_df, pred_y_df), 
+                    metric_func(true_y_df, pred_y_df_neg)
+                )
         except:
             print(metric_name, " Skipped")
     
-    corr = spearmanr(true_y, pred_y)
-    scores["spearman"] = corr.correlation
-    corr = pearsonr(true_y, pred_y)[0]
-    scores["pearson"] = corr
-    corr = kendalltau(true_y, pred_y)[0]
-    scores["kendalltau"] = corr
+    corr = spearmanr(true_yn, pred_yn)
+    scores["spearman"] = np.abs(corr.correlation)
+    corr = pearsonr(true_yn, pred_yn)[0]
+    scores["pearson"] = np.abs(corr)
+    corr = kendalltau(true_yn, pred_yn)[0]
+    scores["kendalltau"] = np.abs(corr)
     
     
     scores["sync"] = max(sync_average(true_yn, pred_yn), sync_average(true_yn, -pred_yn))
@@ -260,7 +266,7 @@ def score_ts(true_y, pred_y):
     scores["coherence_phase"] = np.mean(coherence_phase(true_y, pred_y)[1])
     
     scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75)
-    #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75)
+    #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75) # expensive
     scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, model="mlp", split=0.75)
     
     
