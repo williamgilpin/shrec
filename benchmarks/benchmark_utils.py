@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 
 from scipy.signal import coherence
-from scipy.stats import spearmanr, pearsonr, kendalltau
+from scipy.stats import spearmanr, pearsonr, kendalltau, wilcoxon
 
 from darts import TimeSeries
 import darts.metrics.metrics
@@ -197,18 +197,37 @@ def score_ts2(true_y, pred_y):
     return scores
 
 
+from statsmodels.tsa.stattools import grangercausalitytests
+
+def granger_f(y_true, y_pred):
+    """
+    Compute the f statistic for a Granger causality test between two time series
+    """
+    y_true, y_pred = y_true.squeeze(), y_pred.squeeze()
+
+    # Use statsmodels rule for max lag for adf test
+    max_lag = int(12 * (len(y_true) / 100)**(1/4))
+
+    gran = grangercausalitytests(np.vstack([y_pred, y_true]).T, maxlag=max_lag, verbose=False)
+    max_f = max([gran[item][0]["ssr_ftest"][0] for item in gran])
+    return max_f
+
 from sktime.performance_metrics.forecasting import mean_absolute_scaled_error
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from statsmodels.tsa.stattools import adfuller
 
 def score_ts(true_yn, pred_yn):
     """ Score a pair of time series"""
+
+    true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
+    true_yn, pred_yn = detrend_ts(true_yn).squeeze(), detrend_ts(pred_yn).squeeze()
+
+    # Difference if non-stationary
+    if (adfuller(true_yn)[1] > 0.05) or (adfuller(pred_yn)[1] > 0.05):
+        true_yn, pred_yn = np.diff(true_yn), np.diff(pred_yn)
     
     true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
-    true_yn, pred_yn = detrend_ts(np.squeeze(true_yn)), detrend_ts(np.squeeze(pred_yn))
-    true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
-
-    #true_yn, pred_yn = np.diff(true_yn.squeeze()), np.diff(pred_yn.squeeze())
     #true_yn, pred_yn = MinMaxScaler().fit_transform(true_yn[:, None]) + 1e-4, MinMaxScaler().fit_transform(pred_yn[:, None]) + 1e-4
     #true_yn, pred_yn = StandardScaler().fit_transform(true_yn[:, None]), StandardScaler().fit_transform(pred_yn[:, None])
     true_yn, pred_yn = (
@@ -281,7 +300,10 @@ def score_ts(true_yn, pred_yn):
     scores["one minus pearson"] = 1 - np.abs(corr)
     corr = kendalltau(true_yn, pred_yn)[0]
     scores["one minus kendalltau"] = 1 - np.abs(corr)
-    
+ 
+    scores["wilcoxon"] = wilcoxon(true_yn, pred_yn).statistic / len(true_yn)**2
+
+    scores["granger_f_inv"] = 1 / granger_f(true_yn, pred_yn)
     
     scores["one minus sync"] = 1 - max(sync_average(true_yn, pred_yn), sync_average(true_yn, -pred_yn))
     scores["one minus coherence"] = 1 - np.mean(coherence(true_yn, pred_yn)[1])
@@ -326,6 +348,10 @@ def cross_forecast(ts_input, ts_target, tau=50,
     Returns:
         score (float): The cross forecast error
         y_test_predict (np.ndarray): The predicted values
+
+    TODO: 
+        make this more like Granger causality, add wilcoxon test instead of just raw MSE
+        or at least calculate f statistic from mse
     """
     ts_input, ts_target = np.squeeze(ts_input), np.squeeze(ts_target)
     # Find a functional mapping based on values of the input time series
@@ -335,6 +361,14 @@ def cross_forecast(ts_input, ts_target, tau=50,
     
     X_all = np.squeeze(hankel_matrix(ts_input, tau))
     y_all = ts_target[tau:]
+
+
+    ## Augmented data
+    Y_all = np.squeeze(hankel_matrix(ts_target, tau))
+    Y_all = Y_all[:, :-1] # remove the first column, which is just the target time series
+    X_all = X_all[:, :-1] # remove the last column, which is just the target time series
+    y_all = ts_target[tau + 1:]
+    X_all = np.concatenate([X_all, Y_all], axis=1)
 
     if model == "linear":
         model = LinearRegression()
@@ -370,7 +404,7 @@ def cross_forecast(ts_input, ts_target, tau=50,
 
     y_test_predict,  y_test = standardize_ts(y_test_predict), standardize_ts(y_test)
     score = np.mean((y_test_predict - y_test)**2)
-    score = np.abs(spearmanr(y_test_predict, y_test).correlation)
+    #score = np.abs(spearmanr(y_test_predict, y_test).correlation)
     if return_points:
         return score, y_test_predict
     else:

@@ -198,6 +198,7 @@ def transform_stationary(ts, pthresh=0.05):
     Returns:
         out (np.ndarray): Transformed time series.
     """
+    ts = np.squeeze(ts).copy()
     ad_fuller = adfuller(ts)
     kpss_test = kpss(ts)
 
