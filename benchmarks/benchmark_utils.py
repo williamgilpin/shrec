@@ -197,43 +197,65 @@ def score_ts2(true_y, pred_y):
     return scores
 
 
-def score_ts(true_y, pred_y):
-    """ Score a pair of time series"""
-    true_yn, pred_yn = (
-        np.squeeze(standardize_ts(true_y)), 
-        np.squeeze(standardize_ts(pred_y))
-    )
-    metric_list = [
-        #'coefficient_of_variation',
-        'mae',
-        'mape',
-        'marre',
-        'mse',
-        'r2_score',
-        'rmse',
-        'smape'
-    ]
+from sktime.performance_metrics.forecasting import mean_absolute_scaled_error
 
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+
+def score_ts(true_yn, pred_yn):
+    """ Score a pair of time series"""
+    
+    true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
+    true_yn, pred_yn = detrend_ts(np.squeeze(true_yn)), detrend_ts(np.squeeze(pred_yn))
+    true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
+
+    #true_yn, pred_yn = np.diff(true_yn.squeeze()), np.diff(pred_yn.squeeze())
+    #true_yn, pred_yn = MinMaxScaler().fit_transform(true_yn[:, None]) + 1e-4, MinMaxScaler().fit_transform(pred_yn[:, None]) + 1e-4
+    #true_yn, pred_yn = StandardScaler().fit_transform(true_yn[:, None]), StandardScaler().fit_transform(pred_yn[:, None])
+    true_yn, pred_yn = (
+        RobustScaler().fit_transform(true_yn[:, None]), 
+        RobustScaler().fit_transform(pred_yn[:, None])
+    )
+    true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
+    
+    
+    
+
+    # Functional dependence
+    # sort_inds = np.argsort(true_yn)
+    # true_yn, pred_yn = true_yn[sort_inds], pred_yn[sort_inds]
+    # true_yn, pred_yn = np.cumsum(true_yn), np.cumsum(pred_yn)
+    
     scores = dict()
     
     kval = 30
     np.random.seed(0)
-    lo, hi = (
-        mutual_information((np.random.permutation(true_yn)[:, None],
-                            np.random.permutation(true_yn)[:, None]),
-                           k=kval
-                          ), 
-        mutual_information((true_yn[:, None], 
-                            true_yn[:, None]), 
-                           k=kval), 
-    )
+    lo  = min([
+        mutual_information((
+            np.random.permutation(true_yn)[:, None],
+            np.random.permutation(true_yn)[:, None]),
+            k=kval
+        )
+        for _ in range(20)
+    ])
+    hi = mutual_information((true_yn[:, None], true_yn[:, None]), k=kval)
     mi = mutual_information((true_yn[:, None], pred_yn[:, None]), k=kval)
-    scores["mutual_info"] = (mi - lo) / (hi - lo)
-    scores["conditional_info"] = conditional_information(true_y, pred_y, k=kval)
-    scores["conditional_info_back"] = conditional_information(pred_y, true_y, k=kval)
+    scores["one minus mutual information"] = 1 - (mi - lo) / (hi - lo)
+    scores["conditional_info"] = conditional_information(true_yn, pred_yn, k=kval)
+    scores["conditional_info_back"] = conditional_information(pred_yn, true_yn, k=kval)
     
+    scores["mase"] = min(
+        mean_absolute_scaled_error(true_yn, pred_yn, y_train=true_yn),
+        mean_absolute_scaled_error(true_yn, -pred_yn, y_train=true_yn),
+    )
     
     ## Special format for darts metrics
+    metric_list = [
+        'mae',
+        'marre',
+        'mse',
+        'rmse',
+        'smape'
+    ]
     true_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(true_yn)))
     pred_y_df = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(pred_yn)))
     pred_y_df_neg = TimeSeries.from_dataframe(pd.DataFrame(np.squeeze(-pred_yn)))
@@ -254,25 +276,26 @@ def score_ts(true_y, pred_y):
             print(metric_name, " Skipped")
     
     corr = spearmanr(true_yn, pred_yn)
-    scores["spearman"] = np.abs(corr.correlation)
+    scores["one minus spearman"] = 1 - np.abs(corr.correlation)
     corr = pearsonr(true_yn, pred_yn)[0]
-    scores["pearson"] = np.abs(corr)
+    scores["one minus pearson"] = 1 - np.abs(corr)
     corr = kendalltau(true_yn, pred_yn)[0]
-    scores["kendalltau"] = np.abs(corr)
+    scores["one minus kendalltau"] = 1 - np.abs(corr)
     
     
-    scores["sync"] = max(sync_average(true_yn, pred_yn), sync_average(true_yn, -pred_yn))
-    scores["coherence"] = np.mean(coherence(true_y, pred_y)[1])
-    scores["coherence_phase"] = np.mean(coherence_phase(true_y, pred_y)[1])
+    scores["one minus sync"] = 1 - max(sync_average(true_yn, pred_yn), sync_average(true_yn, -pred_yn))
+    scores["one minus coherence"] = 1 - np.mean(coherence(true_yn, pred_yn)[1])
+    scores["one minus coherence_phase"] = 1 - np.mean(coherence_phase(true_yn, pred_yn)[1])
     
-    scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75)
+    scores["cross forecast error"] = cross_forecast(pred_yn, true_yn, split=0.75)
     #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75) # expensive
-    scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, model="mlp", split=0.75)
-    
-    
-    scores["cross forecast error neural 2"] = cross_forecast(pred_y, true_y, model="mlp")
+    scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp", split=0.75)
+    scores["cross forecast error neural 2"] = cross_forecast(pred_yn, true_yn, model="mlp", split=0.75)
 
-    scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
+    scores["dynamic time warping distance"] = min(
+        dtw.dtw(pred_yn, true_yn).normalizedDistance, 
+        dtw.dtw(-pred_yn, true_yn).normalizedDistance
+    )
     
     
     return scores
@@ -290,9 +313,6 @@ def cross_forecast(ts_input, ts_target, tau=50,
     """
     Train a forecast model that predicts a target time series using timepoints
     of a given time series. 
-    Currently, this function should only be used for linear
-    models (such as for Granger causality) because it does not split train and test
-    
 
     Args:
         ts_input (np.ndarray): The input time series of shape (N, D)
@@ -306,14 +326,12 @@ def cross_forecast(ts_input, ts_target, tau=50,
     Returns:
         score (float): The cross forecast error
         y_test_predict (np.ndarray): The predicted values
-    
-    Development
-        add a train/test forecast split in order to faciliate training 
-        nonlinear models
     """
-    sort_inds = np.argsort(ts_input)
-    ts_input = ts_input[sort_inds]
-    ts_target = ts_target[sort_inds]
+    ts_input, ts_target = np.squeeze(ts_input), np.squeeze(ts_target)
+    # Find a functional mapping based on values of the input time series
+    # sort_inds = np.argsort(ts_input)
+    # ts_input = ts_input[sort_inds]
+    # ts_target = ts_target[sort_inds]
     
     X_all = np.squeeze(hankel_matrix(ts_input, tau))
     y_all = ts_target[tau:]
@@ -349,16 +367,7 @@ def cross_forecast(ts_input, ts_target, tau=50,
     
     model.fit(X_train, y_train)
     y_test_predict = model.predict(X_test)
-    import matplotlib.pyplot as plt
-#     plt.figure()
-#     plt.plot(y_all)
-#     plt.plot(np.arange(len(y_train)), y_train)
-#     plt.plot(len(y_train) + np.arange(len(y_test)), y_test)
-#     plt.plot(len(y_train) + np.arange(len(y_test)), y_test_predict)
-    
-#     plt.plot(y_test, y_test_predict, '.k')
-    #plt.plot(X_test[:, 0], y_test_predict, '.k')
-    
+
     y_test_predict,  y_test = standardize_ts(y_test_predict), standardize_ts(y_test)
     score = np.mean((y_test_predict - y_test)**2)
     score = np.abs(spearmanr(y_test_predict, y_test).correlation)

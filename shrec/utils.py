@@ -181,6 +181,34 @@ def nan_fill(a):
             out[i] = out[i- 1]
     return out
 
+from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import kpss
+
+def transform_stationary(ts, pthresh=0.05):
+    """ 
+    Transform a time series to be stationary using the Augmented Dickey-Fuller test and
+    the Kwiatkowski-Phillips-Schmidt-Shin test. Depending on which combination of tests
+    the time series passes, the time series is transformed using differencing or
+    detrending.
+
+    Args:
+        ts (np.ndarray): Time series to be transformed.
+        pthresh (float): Threshold for p-value of statistical tests.
+
+    Returns:
+        out (np.ndarray): Transformed time series.
+    """
+    ad_fuller = adfuller(ts)
+    kpss_test = kpss(ts)
+
+    if kpss_test[1] < pthresh:
+        ts = np.diff(ts)
+
+    if ad_fuller[1] > pthresh:
+        ts = detrend_ts(ts)
+
+    return ts.squeeze()
+
 def unroll_phase(theta0, wrapval=2*np.pi):
     """
     Given a list of phases, unroll them in order to prevent wraparound discountinuities
@@ -569,6 +597,7 @@ def whiten_zca(X):
     zmat = np.dot(U, np.dot(np.diag(1.0/np.sqrt(S + 1e-6)), U.T))
     X_out = np.dot(zmat, X)
     return X_out
+    
 
 ## NetworkX utilities
 
