@@ -11,14 +11,13 @@ from sksfa import SFA
 from sklearn.decomposition import FastICA
 
 
-
-model_name = "cca"
 OUTPUT_DIR = './dump_results'
 SEED = 0
 tau_vals = [1, 5, 10, 20, 50, 100]
 latent_dim_vals = [1, 5, 10, 20, 50]
 
-train_data_name = "eco" # pick which dataset to use
+train_data_name = "gene" # pick which dataset to use
+# train_data_name = "eco" # pick which dataset to use
 # train_data_name = "rat" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use
@@ -36,31 +35,31 @@ true_signal = true_signal[:train_data.shape[0]]
 
 latent_dim_vals[-1] = min(latent_dim_vals[-1], train_data.shape[1])
 
-# model_name = "dca"
-# all_params = itertools.product(tau_vals, latent_dim_vals)
-# fname_base = "all_signals_" + model_name +  "_" + train_data_name + "_"
-# for params in all_params:
+model_name = "dca"
+all_params = itertools.product(tau_vals, latent_dim_vals)
+fname_base = "all_signals_" + model_name +  "_" + train_data_name + "_"
+for params in all_params:
 
-#     ## Everything here is model specific
-#     tau, dim_val = params
-#     print("hyperparameters: ", tau, dim_val, flush=True)
+    ## Everything here is model specific
+    tau, dim_val = params
+    print("hyperparameters: ", tau, dim_val, flush=True)
 
-#     # Sometimes bad hyperparameters trigger a NaN loss
-#     try:
-#         model = DCA(d=dim_val, T=tau, rng_or_seed=SEED)
-#         y_model = model.fit_transform(train_data)[:, 0]
-#         #signal = resample(y_model , input.shape[-1])
-#         signal = y_model#[:train_data.shape[0]]
-#         print(f"Finished training {model_name}.", flush=True)
-#         pstr = "_".join([str(x) for x in params])
-#         signal.dump(
-#             os.path.join(
-#                 OUTPUT_DIR, model_name, train_data_name, fname_base + pstr + '.npy'
-#             )
-#         )
-#     except ValueError:
-#         print("Error with hyperparameters: ", dim_val, tau, flush=True)
-#         pass
+    # Sometimes bad hyperparameters trigger a NaN loss
+    try:
+        model = DCA(d=dim_val, T=tau, rng_or_seed=SEED)
+        y_model = model.fit_transform(train_data)[:, 0]
+        #signal = resample(y_model , input.shape[-1])
+        signal = y_model#[:train_data.shape[0]]
+        print(f"Finished training {model_name}.", flush=True)
+        pstr = "_".join([str(x) for x in params])
+        signal.dump(
+            os.path.join(
+                OUTPUT_DIR, model_name, train_data_name, fname_base + pstr + '.npy'
+            )
+        )
+    except ValueError:
+        print("Error with hyperparameters: ", dim_val, tau, flush=True)
+        pass
 
 
 model_name = "cca"

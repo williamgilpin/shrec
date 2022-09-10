@@ -319,9 +319,9 @@ def score_ts(true_yn, pred_yn):
     
     scores["cross forecast error"] = cross_forecast(pred_yn, true_yn)
     scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp")
-    scores["cross forecast error neural 2"] = cross_forecast(true_yn, pred_yn, model="mlp")
+    #scores["cross forecast error neural 2"] = cross_forecast(true_yn, pred_yn, model="mlp")
     scores["cross forecast error gradboost"] = cross_forecast(pred_yn, true_yn, model="gb")
-    scores["cross forecast error gradboost 2"] = cross_forecast(true_yn, pred_yn, model="gb")
+    #scores["cross forecast error gradboost 2"] = cross_forecast(true_yn, pred_yn, model="gb")
 
     # scores["dynamic time warping distance"] = min(
     #     dtw.dtw(pred_yn, true_yn).normalizedDistance, 
