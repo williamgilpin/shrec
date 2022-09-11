@@ -17,6 +17,11 @@ Install the latest development version directly from GitHub
     
 ## Additional information
 
+Install scanpy using conda
+
+	conda install -c conda-forge scanpy python-igraph leidenalg
+
+
 Dependencies
 + pandas
 + scikit-learn
