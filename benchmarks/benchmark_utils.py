@@ -190,9 +190,9 @@ def score_ts2(true_y, pred_y):
     mi = mutual_information((true_yn[:, None], pred_yn[:, None]), k=kval)
     scores["mutual_info"] = (mi - lo) / (hi - lo)
     
-    scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75)
+    scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75, model="ridge")
     #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75)
-    scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, model="mlp", split=0.75)
+    scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, split=0.75, model="mlp")
     
     scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
 
@@ -221,10 +221,34 @@ def granger_f(y_true, y_pred):
     max_f = max([gran[item][0]["ssr_ftest"][0] for item in gran])
     return max_f
 
+from scipy.signal import correlate
+def cross_correlation_max(y_true, y_pred):
+    """
+    Compute the maximum cross correlation between two time series
+    """
+    y_true, y_pred = y_true.squeeze(), y_pred.squeeze()
+    y_true, y_pred = standardize_ts(y_true), standardize_ts(y_pred)
+    scale = np.std(y_true) * np.std(y_pred)
+    scale = np.max(np.correlate(y_true, y_true, mode="same"))
+    if scale == 0:
+        return 0
+    return np.max(np.correlate(y_true, y_pred, mode="same")) / scale
+
 from sktime.performance_metrics.forecasting import mean_absolute_scaled_error
+
+def sliding_score(y_true, y_pred, func, padding=10):
+    y_true, y_pred = y_true.squeeze(), y_pred.squeeze()
+    scores = list()
+    max_len = min(len(y_true), len(y_pred))
+    y_true, y_pred = y_true[:max_len], y_pred[:max_len]
+    for i in range(padding, max_len - padding):
+        scores.append(func(y_true[i:], y_pred[(-max_len + i):]))
+    return np.array(scores).squeeze()
+
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from statsmodels.tsa.stattools import adfuller
+
 
 def score_ts(true_yn, pred_yn):
     """ Score a pair of time series"""
@@ -275,7 +299,12 @@ def score_ts(true_yn, pred_yn):
         mean_absolute_scaled_error(true_yn, pred_yn, y_train=true_yn),
         mean_absolute_scaled_error(true_yn, -pred_yn, y_train=true_yn),
     )
-    
+
+    spearman_func = lambda x, y: 1 - np.abs(spearmanr(x, y).correlation)
+    sliding_scores1 = sliding_score(true_yn, pred_yn, spearman_func).min()
+    sliding_scores2 = sliding_score(true_yn, -pred_yn, spearman_func).min()
+    scores["one minus spearman"] = min(sliding_scores1, sliding_scores2)
+
     # ## Special format for darts metrics
     # metric_list = [
     #     'mae',
@@ -315,12 +344,29 @@ def score_ts(true_yn, pred_yn):
     # scores["one minus coherence"] = 1 - np.mean(coherence(true_yn, pred_yn)[1])
     # scores["one minus coherence_phase"] = 1 - np.mean(coherence_phase(true_yn, pred_yn)[1])
 
-    scores["granger_f_inv"] = 1 / (1.0e-16 + granger_f(true_yn, pred_yn))
+    #scores["granger_f_inv"] = 1 / (1.0e-16 + granger_f(true_yn, pred_yn))
     
-    scores["cross forecast error"] = cross_forecast(pred_yn, true_yn)
-    scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp")
+    #scores["cross forecast error"] = cross_forecast(pred_yn, true_yn)
+    # scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp", tau=300)
+
+    scores["cross correlation error"] = 1 - max(
+        cross_correlation_max(true_yn.squeeze(), pred_yn.squeeze()),
+        cross_correlation_max(true_yn.squeeze(), -pred_yn.squeeze())
+    )
+
+    # scores["cross forecast error gp"] = cross_forecast(pred_yn, true_yn, model="gp")
+    # scores["cross forecast error linear"] = cross_forecast(pred_yn, true_yn, model="linear")
+
+    # all_reps = list()
+    # for _ in range(10):
+    #     all_reps.append(
+    #         cross_forecast(pred_yn, true_yn, model="mlp")
+    #     )
+    # scores["cross forecast error neural"] = np.median(all_reps)
+    
+    #scores["cross forecast error gradboost"] = cross_forecast(pred_yn, true_yn, model="gb")
+
     #scores["cross forecast error neural 2"] = cross_forecast(true_yn, pred_yn, model="mlp")
-    scores["cross forecast error gradboost"] = cross_forecast(pred_yn, true_yn, model="gb")
     #scores["cross forecast error gradboost 2"] = cross_forecast(true_yn, pred_yn, model="gb")
 
     # scores["dynamic time warping distance"] = min(
@@ -336,6 +382,8 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, H
 from sklearn.neural_network import MLPRegressor
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.preprocessing import RobustScaler
 
 def cross_forecast(
     ts_input, ts_target, 
@@ -371,8 +419,8 @@ def cross_forecast(
     """
     
     ts_input, ts_target = np.squeeze(detrend_ts(ts_input)), np.squeeze(detrend_ts(ts_target))
-    if (adfuller(ts_input)[1] > 0.05) or (adfuller(ts_target)[1] > 0.05):
-            ts_input, ts_target = np.diff(ts_input), np.diff(ts_target)
+    # if (adfuller(ts_input)[1] > 0.05) or (adfuller(ts_target)[1] > 0.05):
+    #         ts_input, ts_target = np.diff(ts_input), np.diff(ts_target)
 
     # Find a functional mapping based on values of the input time series
     # sort_inds = np.argsort(ts_input)
@@ -397,6 +445,8 @@ def cross_forecast(
         model = KernelRidge(kernel="rbf", alpha=1e-1)
     elif model == "lasso":
         model = LassoCV()
+    elif model == "knn":
+        model = KNeighborsRegressor(n_neighbors=50)
     elif model == "gp":
         model = GaussianProcessRegressor()
     elif model == "rf":
@@ -405,7 +455,7 @@ def cross_forecast(
         model = HistGradientBoostingRegressor()
     elif model == "mlp":
         # wider networks more consistent
-        model = MLPRegressor(hidden_layer_sizes=(500, 500)) 
+        model = MLPRegressor(hidden_layer_sizes=(500, 500))
     else:
         model = LinearRegression()
         
@@ -442,11 +492,20 @@ def cross_forecast(
         #print(mse_unrestricted, mse_restricted, fstat)
 
         # larger wilcoxon test statistic means that the augmented model is better
+        # try:
+        #     wstat = wilcoxon((y_predict - y_test)**2, (y_predict_aug - y_test)**2).statistic / len(y_test)**2
+        # except ValueError:
+        #     wstat = 0.0
+        #score = 1 / (wstat + 1.0e-10) # 1 / wstat is a distance measure
         try:
-            wstat = wilcoxon((y_predict - y_test)**2, (y_predict_aug - y_test)**2).statistic / len(y_test)**2
+            wstat = wilcoxon((y_predict - y_test)**2, (y_predict_aug - y_test)**2).statistic
+            scale_factor = (len(y_test)**2 + len(y_test)) // 4
+            wstat /= scale_factor
         except ValueError:
             wstat = 0.0
-        score = 1 / (wstat + 1.0e-10) # 1 / wstat is a distance measure
+        # 1 - wstat is a distance measure, larger wilcoxon test statistic means that 
+        # the augmented model is better
+        score = 1 - wstat
         
     elif score == "aug_mse":
         # Augmented model
@@ -456,7 +515,7 @@ def cross_forecast(
 
     #elif score == "cross_mse":
     else:
-        warnings.warng("Score method not recognized. Using cross-forecast mse")
+        warnings.warn("Score method not recognized. Using cross-forecast mse")
         # Cross-fitting
         model.fit(X_train, y_train)
         y_predict = model.predict(X_test)
