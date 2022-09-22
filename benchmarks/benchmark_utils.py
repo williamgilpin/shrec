@@ -166,37 +166,37 @@ def coherence_phase(a, b, freq=1, FS=1):
     ap, bp = fft_phase(a), fft_phase(b)
     return np.sqrt((np.cos(ap) + np.cos(bp))**2 + (np.sin(ap) + np.sin(bp))**2) / 2
 
-def score_ts2(true_y, pred_y):
-    """ Score a pair of time series"""
-    true_yn, pred_yn = (
-        np.squeeze(standardize_ts(true_y)), 
-        np.squeeze(standardize_ts(pred_y))
-    )
+# def score_ts2(true_y, pred_y):
+#     """ Score a pair of time series"""
+#     true_yn, pred_yn = (
+#         np.squeeze(standardize_ts(true_y)), 
+#         np.squeeze(standardize_ts(pred_y))
+#     )
 
 
-    scores = dict()
+#     scores = dict()
     
-    kval = 30
-    np.random.seed(0)
-    lo, hi = (
-        mutual_information((np.random.permutation(true_yn)[:, None],
-                            np.random.permutation(true_yn)[:, None]),
-                           k=kval
-                          ), 
-        mutual_information((true_yn[:, None], 
-                            true_yn[:, None]), 
-                           k=kval), 
-    )
-    mi = mutual_information((true_yn[:, None], pred_yn[:, None]), k=kval)
-    scores["mutual_info"] = (mi - lo) / (hi - lo)
+#     kval = 30
+#     np.random.seed(0)
+#     lo, hi = (
+#         mutual_information((np.random.permutation(true_yn)[:, None],
+#                             np.random.permutation(true_yn)[:, None]),
+#                            k=kval
+#                           ), 
+#         mutual_information((true_yn[:, None], 
+#                             true_yn[:, None]), 
+#                            k=kval), 
+#     )
+#     mi = mutual_information((true_yn[:, None], pred_yn[:, None]), k=kval)
+#     scores["mutual_info"] = (mi - lo) / (hi - lo)
     
-    scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75, model="ridge")
-    #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75)
-    scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, split=0.75, model="mlp")
+#     scores["cross forecast error"] = cross_forecast(pred_y, true_y, split=0.75, model="ridge")
+#     #scores["cross forecast error rf"] = cross_forecast(pred_y, true_y, model="rf", split=0.75)
+#     scores["cross forecast error neural"] = cross_forecast(pred_y, true_y, split=0.75, model="mlp")
     
-    scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
+#     scores["dynamic time warping distance"] = min(dtw.dtw(pred_y, true_y).normalizedDistance, dtw.dtw(-pred_y, true_y).normalizedDistance)
 
-    return scores
+#     return scores
 
 
 from statsmodels.tsa.stattools import grangercausalitytests
@@ -222,17 +222,22 @@ def granger_f(y_true, y_pred):
     return max_f
 
 from scipy.signal import correlate
-def cross_correlation_max(y_true, y_pred):
+def cross_correlation_max(y_true, y_pred, return_argmax=False):
     """
     Compute the maximum cross correlation between two time series
     """
     y_true, y_pred = y_true.squeeze(), y_pred.squeeze()
     y_true, y_pred = standardize_ts(y_true), standardize_ts(y_pred)
     scale = np.std(y_true) * np.std(y_pred)
-    scale = np.max(np.correlate(y_true, y_true, mode="same"))
+    scale = np.max(correlate(y_true, y_true))
     if scale == 0:
-        return 0
-    return np.max(np.correlate(y_true, y_pred, mode="same")) / scale
+        out = 0
+    else:
+        out = np.max(correlate(y_true, y_pred)) / scale
+    if return_argmax:
+        return int(np.argmax(np.correlate(y_true, y_pred, mode="same")[:len(y_true) // 4])), out
+    else:
+        return out
 
 from sktime.performance_metrics.forecasting import mean_absolute_scaled_error
 
@@ -261,6 +266,8 @@ def score_ts(true_yn, pred_yn):
     #     # Difference if non-stationary
     #     if (adfuller(true_yn)[1] > 0.05) or (adfuller(pred_yn)[1] > 0.05):
     #         true_yn, pred_yn = np.diff(true_yn), np.diff(pred_yn)
+
+    
     
     true_yn, pred_yn = np.squeeze(true_yn), np.squeeze(pred_yn)
     #true_yn, pred_yn = MinMaxScaler().fit_transform(true_yn[:, None]) + 1e-4, MinMaxScaler().fit_transform(pred_yn[:, None]) + 1e-4
@@ -347,7 +354,7 @@ def score_ts(true_yn, pred_yn):
     #scores["granger_f_inv"] = 1 / (1.0e-16 + granger_f(true_yn, pred_yn))
     
     #scores["cross forecast error"] = cross_forecast(pred_yn, true_yn)
-    # scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp", tau=300)
+    scores["cross forecast error neural"] = cross_forecast(pred_yn, true_yn, model="mlp", tau=300)
 
     scores["cross correlation error"] = 1 - max(
         cross_correlation_max(true_yn.squeeze(), pred_yn.squeeze()),
@@ -378,7 +385,7 @@ def score_ts(true_yn, pred_yn):
 
 from sklearn.linear_model import LinearRegression, RidgeCV, LassoCV
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, HistGradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.svm import SVR
@@ -428,6 +435,14 @@ def cross_forecast(
     # ts_target = ts_target[sort_inds]
     
     #y_all = ts_target[tau:]
+
+    # # Compute optimal lag time for forecasting
+    # lag_time, _ = cross_correlation_max(ts_input, ts_target, return_argmax=True)
+    # #print("lag time", lag_time)
+    # lag_time = min(lag_time, len(ts_input) - 2 * tau - 1)
+    # #print("lag time", ts_input.shape, ts_target.shape)
+    # if lag_time > 0:
+    #     ts_input, ts_target = ts_input[:-lag_time], ts_target[lag_time:]
 
     ## Augmented data
     X_all = np.squeeze(hankel_matrix(ts_input, tau))
