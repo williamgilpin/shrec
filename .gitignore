@@ -13,6 +13,7 @@ big_data/
 *private
 *dump
 *dev
+DynamicalComponentsAnalysis/
 
 ### Large storage files
 *.pkl
