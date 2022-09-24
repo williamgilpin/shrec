@@ -595,3 +595,90 @@ def cross_forecast_error(ts_reference, ts_predicted, tau_vals=[5, 10, 25, 50, 10
         mse = min(mse, np.mean((prediction - ts_reference[tau:])**2))
     return corr
 
+
+
+
+from darts.models import TransformerModel, NBEATSModel, NHiTSModel
+from darts import TimeSeries
+from darts.dataprocessing.transformers import Scaler
+
+from sklearn.preprocessing import RobustScaler, StandardScaler
+from scipy.stats import wilcoxon
+
+class GrangerScorer:
+    """
+    A scorer for Granger causality.
+    
+    Attributes:
+        tau (int): The number of time steps to use to regress a prediction
+            on the target.
+        score (str): The scoring function for Granger causality.
+        model (str): a model name to use to fit and predict the time series
+        split (int): the number of time steps to use for training versus validation
+        return_model (bool): which time series to use as the reference for causality
+        score (float): The score of the model. Lower is better.
+    """
+
+    def __init__(self, tau=300, score="wilcoxon", model="nhits", split=0.5, reverse=False):
+        self.tau = tau
+        self.score_method = score
+        self.model_name = model
+        self.split = split
+        self.reverse = reverse
+    
+    def fit_predict(self, y_true, y_pred):
+
+        if self.reverse:
+            y_true, y_pred = y_pred, y_true
+
+        ts_input, ts_target = np.squeeze(detrend_ts(y_pred)), np.squeeze(detrend_ts(y_true))
+        split_index = int(len(y_true) * self.split)
+
+        ts_recon, ts_true = (
+            TimeSeries.from_values(ts_input.astype(np.float32)),
+            TimeSeries.from_values(ts_target.astype(np.float32))
+        )
+
+        ts_recon, ts_true  = (
+            Scaler(scaler=StandardScaler()).fit_transform(ts_recon), 
+            Scaler(scaler=StandardScaler()).fit_transform(ts_true)
+        )
+
+        train_recon, val_recon = ts_recon.split_before(split_index)
+        train_true, val_true = ts_true.split_before(split_index)
+
+        model_hparams = {"input_chunk_length": self.tau, "output_chunk_length": 1}
+        model_both =  NHiTSModel(**model_hparams)
+        model_both.fit([train_true, train_recon])
+
+        model_one =  NHiTSModel(**model_hparams)
+        model_one.fit(train_true)
+
+        # self.model_both = model_both
+        # self.model_one = model_one
+        # model_both.residuals(train_recon)
+        # model_one.residuals(train_recon)
+
+        prediction_both = model_both.predict(len(val_true), series=train_true)
+        prediction_one = model_one.predict(len(val_true), series=train_true)
+
+        ## Two-sided Granger modek
+        # model_two =  NHiTSModel(**model_hparams)
+        # model_two.fit(train_recon)
+        # prediction_two = model_one.predict(len(val_true), series=train_recon)
+
+        y_test = val_true.values().squeeze()
+        y_predict = prediction_one.values().squeeze()
+        y_predict_aug = prediction_both.values().squeeze()
+
+        self.y_test = y_test
+        self.y_predict = y_predict
+        self.y_predict_aug = y_predict_aug
+
+        wstat = wilcoxon((y_predict - y_test)**2, (y_predict_aug - y_test)**2).statistic
+        scale_factor = (len(y_test)**2 + len(y_test)) // 4
+        wstat /= scale_factor
+
+        score = 1 - wstat
+        self.score = score
+        return score
