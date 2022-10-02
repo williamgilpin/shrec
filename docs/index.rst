@@ -11,7 +11,6 @@ Welcome to shrec's documentation!
    :caption: Contents:
 
 
-
 Indices and tables
 ==================
 

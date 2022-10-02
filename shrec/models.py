@@ -755,16 +755,10 @@ class RecurrenceClustering(RecurrenceModel):
         indices, labels = indices[sort_inds], labels[sort_inds]
         reference_indices = np.arange(neighbor_matrix.shape[0])
 
-        #         missing_vals = np.setxor1d(reference_indices, indices)
-        #         unclassified_inds = arg_find(reference_indices, missing_vals)
-
         self.indices = np.copy(reference_indices)
         self.labels_ = -np.ones_like(self.indices)
         self.labels_[indices] = labels
 
-        #         print(indices.shape, labels.shape)
-        #         self.indices = indices
-        #         self.labels_ = labels
         self.has_unclassified = np.any(self.labels_ < 0)
         self.n_clusters = len(np.unique(self.labels_)) - self.has_unclassified
 
@@ -867,12 +861,14 @@ class RecurrenceManifold(RecurrenceModel):
                  start="multiple", 
                  n_samples_pseudotime=20, 
                  sampling_method_pseudotime="deterministic_extreme", 
+                 flag_prune=False,
                  **kwargs
                 ):
         super().__init__(**kwargs)
         self.start = start
         self.n_samples_pseudotime = n_samples_pseudotime
         self.sampling_method_pseudotime = sampling_method_pseudotime
+        self.flag_prune = flag_prune
         # np.random.seed(self.random_state)
 
     def fit(
@@ -931,8 +927,28 @@ class RecurrenceManifold(RecurrenceModel):
         ## Given a connectivity matrix, compute the neighbor graph and then reduce
         #curr_time()
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
-        #neighbor_matrix = dist_mat_bin
+        
+        
         neighbor_matrix = bd
+
+        if self.flag_prune:
+            # dist_mat_bin = 1 - sparsify(
+            #     1 - bd,
+            #     1 - self.tolerance,
+            #     weighted=self.weighted_connectivity
+            # )
+            # neighbor_matrix = dist_mat_bin
+
+
+            from sklearn.cluster import KMeans
+            clusterer = KMeans(n_clusters=2, random_state=0)
+            clusterer.fit(np.ravel(bd)[:, None])
+            labels = clusterer.labels_
+            values = clusterer.cluster_centers_.squeeze()
+            bd2 = np.choose(labels, values)
+            bd2.shape = bd.shape
+            neighbor_matrix = bd2
+
         #root_index = np.argmin(np.mean(neighbor_matrix, axis=1))
         root_index = np.argmin(np.min(neighbor_matrix, axis=1))
         self.root_index = root_index

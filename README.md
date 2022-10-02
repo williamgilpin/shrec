@@ -17,10 +17,19 @@ Install the latest development version directly from GitHub
     
 ## Additional information
 
+Install core dependencies
+
+	conda install numpy scipy matplotlib networkx h5py
+
 Install scanpy using conda
 
-	conda install -c conda-forge scanpy python-igraph leidenalg
+	conda install -c conda-forge scikit-learn scanpy python-igraph leidenalg 
+	pip install --upgrade-strategy only-if-needed graspologic
 
+Install optional dependencies
+
+	conda install -c conda-forge jupyterlab
+	conda install seaborn pandas 
 
 Dependencies
 + pandas
