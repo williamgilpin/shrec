@@ -938,16 +938,18 @@ class RecurrenceManifold(RecurrenceModel):
             #     weighted=self.weighted_connectivity
             # )
             # neighbor_matrix = dist_mat_bin
+            
 
+            # from sklearn.cluster import KMeans
+            # clusterer = KMeans(n_clusters=2, random_state=0)
+            # clusterer.fit(np.ravel(bd)[:, None])
+            # labels = clusterer.labels_
+            # values = clusterer.cluster_centers_.squeeze()
+            # bd2 = np.choose(labels, values)
+            # bd2.shape = bd.shape
+            # neighbor_matrix = bd2
 
-            from sklearn.cluster import KMeans
-            clusterer = KMeans(n_clusters=2, random_state=0)
-            clusterer.fit(np.ravel(bd)[:, None])
-            labels = clusterer.labels_
-            values = clusterer.cluster_centers_.squeeze()
-            bd2 = np.choose(labels, values)
-            bd2.shape = bd.shape
-            neighbor_matrix = bd2
+            neighbor_matrix = matrix_lowrank(neighbor_matrix, 10)
 
         #root_index = np.argmin(np.mean(neighbor_matrix, axis=1))
         root_index = np.argmin(np.min(neighbor_matrix, axis=1))
