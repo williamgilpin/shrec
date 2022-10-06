@@ -949,7 +949,7 @@ class RecurrenceManifold(RecurrenceModel):
             # bd2.shape = bd.shape
             # neighbor_matrix = bd2
 
-            neighbor_matrix = matrix_lowrank(neighbor_matrix, 10)
+            neighbor_matrix = matrix_lowrank(neighbor_matrix, 3)
 
         #root_index = np.argmin(np.mean(neighbor_matrix, axis=1))
         root_index = np.argmin(np.min(neighbor_matrix, axis=1))
