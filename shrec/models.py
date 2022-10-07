@@ -917,21 +917,21 @@ class RecurrenceManifold(RecurrenceModel):
                 1 - self.tolerance,
                 weighted=self.weighted_connectivity
             )
+            print("Matrix sparsity is: ", sparsity(dist_mat_bin))
         else:
             dist_mat_bin = bd
         curr_time()
         nt = dist_mat_bin.shape[0]
-        print("Matrix sparsity is: ", sparsity(dist_mat_bin))
-
+        
 
         ## Given a connectivity matrix, compute the neighbor graph and then reduce
         #curr_time()
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
         
-        
-        neighbor_matrix = bd
+        neighbor_matrix = dist_mat_bin
 
         if self.flag_prune:
+            self.uncompressed_matrix = neighbor_matrix.copy()
             # dist_mat_bin = 1 - sparsify(
             #     1 - bd,
             #     1 - self.tolerance,
@@ -948,10 +948,9 @@ class RecurrenceManifold(RecurrenceModel):
             # bd2 = np.choose(labels, values)
             # bd2.shape = bd.shape
             # neighbor_matrix = bd2
+            
+            neighbor_matrix = matrix_lowrank(neighbor_matrix, 1)
 
-            neighbor_matrix = matrix_lowrank(neighbor_matrix, 3)
-
-        #root_index = np.argmin(np.mean(neighbor_matrix, axis=1))
         root_index = np.argmin(np.min(neighbor_matrix, axis=1))
         self.root_index = root_index
         

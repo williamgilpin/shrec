@@ -63,7 +63,7 @@ def nan_pca(X, weights=None):
     # eigs = eigs[idx]
     # return vecs.T
 
-def matrix_lowrank(a, k):
+def matrix_lowrank(a, k=-1):
     """Returns the low-rank approximation of a matrix"""
     U, s, V = np.linalg.svd(a)
     return U[:, :k] @ np.diag(s[:k]) @ V[:k, :]
