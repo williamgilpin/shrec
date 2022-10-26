@@ -263,6 +263,46 @@ def find_psd(y, window=True):
     fvals, psd = periodogram(y, fs=1)
     return fvals[:halflen], psd[:halflen]
 
+
+def group_consecutives(vals, step=1):
+    """
+    Return list of consecutive lists of numbers from vals (number list).
+    
+    References:
+        Modified from the following
+        https://stackoverflow.com/questions/7352684/
+        how-to-find-the-groups-of-consecutive-elements-from-an-array-in-numpy 
+    """
+    run = list()
+    result = [run]
+    expect = None
+    for v in vals:
+        if (v == expect) or (expect is None):
+            run.append(v)
+        else:
+            run = [v]
+            result.append(run)
+        expect = v + step
+    return result
+
+from scipy.ndimage import gaussian_filter1d
+def find_characteristic_timescale(y, k=1, window=False):
+    """
+    Find the k leading characteristic timescales in a time series
+    using the power spectrum..
+    """
+    y = gaussian_filter1d(y, 3)
+
+    fvals, psd = find_psd(y, window=window)
+    max_indices = np.argsort(psd)[::-1]
+    
+    # Merge adjacent peaks
+    grouped_maxima = group_consecutives(max_indices)
+    max_indices_grouped = np.array([np.mean(item) for item in grouped_maxima])
+    max_indices_grouped = max_indices_grouped[max_indices_grouped != 1]
+    
+    return np.squeeze(1/(np.median(np.diff(fvals))*max_indices_grouped[:k]))
+
 def lift_ts(a, target=2):
     """
     If needed, pad the dimensionality of a univariate time series

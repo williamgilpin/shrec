@@ -928,7 +928,7 @@ class RecurrenceManifold(RecurrenceModel):
         #curr_time()
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
         
-        neighbor_matrix = dist_mat_bin
+        neighbor_matrix = bd
 
         if self.flag_prune:
             self.uncompressed_matrix = neighbor_matrix.copy()
