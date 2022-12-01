@@ -7,8 +7,13 @@ import warnings
 from scipy.signal import coherence
 from scipy.stats import spearmanr, pearsonr, kendalltau, wilcoxon
 
-from darts import TimeSeries
-import darts.metrics.metrics
+
+try:
+    from darts import TimeSeries
+    import darts.metrics.metrics
+except ImportError:
+    warnings.warn("Darts not installed, cannot use darts metrics")
+
 import dtw; # suppress stdout
 
 from shrec.utils import *
