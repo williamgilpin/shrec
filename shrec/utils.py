@@ -9,7 +9,6 @@ from scipy.signal import blackmanharris, periodogram
 
 from datetime import datetime
 
-
 def get_time():
     """Find current time in human-readable format"""
     now = datetime.now()
@@ -107,6 +106,9 @@ def zero_topk(a, k=1, magnitude=False):
         a (array): A vector with shape (D,)
         k (int): The number of components to zero
         magnitude (bool): If True, zero everything but the top k components
+
+    Returns:
+        a2 (array): A copy of a with the top k components set equal to zero
     """
     a2 = np.zeros_like(a)
     if magnitude:
@@ -119,7 +121,13 @@ def zero_topk(a, k=1, magnitude=False):
 import pickle
 def load_pickle_file(filename):
     """
-    Load an unstructured pickle file
+    Load an unstructured pickle file and return the data
+
+    Args:
+        filename (str): The path to the pickle file
+
+    Returns:
+        data (object): The data stored in the pickle file
     """
     fr = open(filename, 'rb')
     data = pickle.load(fr)

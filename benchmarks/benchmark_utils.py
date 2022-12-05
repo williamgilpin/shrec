@@ -11,10 +11,17 @@ from scipy.stats import spearmanr, pearsonr, kendalltau, wilcoxon
 try:
     from darts import TimeSeries
     import darts.metrics.metrics
+
+    from darts.models import TransformerModel, NBEATSModel, NHiTSModel
+    from darts import TimeSeries
+    from darts.dataprocessing.transformers import Scaler
 except ImportError:
     warnings.warn("Darts not installed, cannot use darts metrics")
 
-import dtw; # suppress stdout
+try:
+    import dtw; # suppress stdout
+except ImportError:
+    warnings.warn("DTW not installed, cannot use DTW metrics")
 
 from shrec.utils import *
 
@@ -479,9 +486,7 @@ def cross_forecast_error(ts_reference, ts_predicted, tau_vals=[5, 10, 25, 50, 10
 
 
 
-from darts.models import TransformerModel, NBEATSModel, NHiTSModel
-from darts import TimeSeries
-from darts.dataprocessing.transformers import Scaler
+
 
 from sklearn.preprocessing import RobustScaler, StandardScaler
 from scipy.stats import wilcoxon
