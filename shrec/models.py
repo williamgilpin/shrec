@@ -67,38 +67,38 @@ class DisjointSet:
 
 
 
-import scanpy as sc
-def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
-    """
-    Compute pseudotime from a distance matrix
+# import scanpy as sc
+# def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
+#     """
+#     Compute pseudotime from a distance matrix
     
-    Currently requires scanpy to be installed
+#     Currently requires scanpy to be installed
     
-    Args:
-        dmat (array-like): a distance matrix of shape (N, N)
-        root (integer): the index to use as the root
-        n_branchings (int): the expected number of bifurcations
-        fill (float or None): fill value for points unassigned pseudotime
-        n_comps (int): the number of components to use in the diffusion map
+#     Args:
+#         dmat (array-like): a distance matrix of shape (N, N)
+#         root (integer): the index to use as the root
+#         n_branchings (int): the expected number of bifurcations
+#         fill (float or None): fill value for points unassigned pseudotime
+#         n_comps (int): the number of components to use in the diffusion map
 
-    Returns
-        pt_vals (array): a list of pseudotime assignments of length N
-    """
-    ndim = dmat.shape[0]
-    adata = sc.AnnData(np.zeros((ndim, 3)), dtype='float64')
-    sc.pp.neighbors(adata, n_neighbors=3, n_pcs=3)  ## no effect
-    # this distance matrix is not used
-    adata.obsp["distances"] = scipy.sparse.csr_matrix(dmat.shape)
-    if scipy.sparse.issparse(dmat):
-        adata.obsp["connectivities"] = dmat
-    else:
-        adata.obsp["connectivities"] = scipy.sparse.csr_matrix(dmat)
-    adata.uns["iroot"] = root
-    sc.tl.diffmap(adata, n_comps=n_comps) # Diffusion map calculation
-    sc.tl.dpt(adata, n_branchings=n_branchings) # find maximum spanning tree
-    pt_vals = np.array(adata.obs["dpt_pseudotime"])
-    pt_vals[np.isinf(pt_vals)] = fill
-    return pt_vals
+#     Returns
+#         pt_vals (array): a list of pseudotime assignments of length N
+#     """
+#     ndim = dmat.shape[0]
+#     adata = sc.AnnData(np.zeros((ndim, 3)), dtype='float64')
+#     sc.pp.neighbors(adata, n_neighbors=3, n_pcs=3)  ## no effect
+#     # this distance matrix is not used
+#     adata.obsp["distances"] = scipy.sparse.csr_matrix(dmat.shape)
+#     if scipy.sparse.issparse(dmat):
+#         adata.obsp["connectivities"] = dmat
+#     else:
+#         adata.obsp["connectivities"] = scipy.sparse.csr_matrix(dmat)
+#     adata.uns["iroot"] = root
+#     sc.tl.diffmap(adata, n_comps=n_comps) # Diffusion map calculation
+#     sc.tl.dpt(adata, n_branchings=n_branchings) # find maximum spanning tree
+#     pt_vals = np.array(adata.obs["dpt_pseudotime"])
+#     pt_vals[np.isinf(pt_vals)] = fill
+#     return pt_vals
 
 
 import scipy.sparse as sp
@@ -469,7 +469,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.detrend = detrend
         self.metric = metric
         self.scale = scale
-        self.aggregation_order = aggregation_order
+        self.aggregation_order = float(aggregation_order)
         
         np.random.seed(self.random_state)
 
