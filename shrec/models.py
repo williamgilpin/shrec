@@ -916,6 +916,12 @@ class RecurrenceManifold(RecurrenceModel):
         if self.store_adjacency_matrix:
             self.adjacency_matrix = neighbor_matrix
 
+        # eigvals, eigvecs = scipy.linalg.eigh(
+        #     neighbor_matrix, 
+        #     subset_by_index=[neighbor_matrix.shape[0]-2, neighbor_matrix.shape[0]-1]
+        # )
+        # pt_vals = eigvecs[:, -1]
+
         embedder = SpectralEmbedding(
             n_components=self.n_components, 
             random_state=self.random_state, 

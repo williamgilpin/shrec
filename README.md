@@ -1,10 +1,20 @@
 ## shrec
 
-The **sh**ared **rec**urrence method for identifying causal drivers of time series
+The **sh**ared **rec**urrence method for identifying causal drivers of collections of time series 
+
+![A diagram of the algorithm](shrec/data/fig_github.png)
 
 ## Usage
 
-from shrec.models import 
+```python
+from shrec.models import RecurrenceManifold
+
+X = load_data() # shape (n_timepoints, n_series)
+model = RecurrenceManifold()
+y_recon = model.fit_predict(X)
+```
+
+Additional examples can be found in the [`demos.ipynb`](demos.ipynb) notebook.
 
 
 ## Installation
