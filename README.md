@@ -2,7 +2,7 @@
 
 The **sh**ared **rec**urrence method for identifying causal drivers of collections of time series 
 
-![A diagram of the algorithm](shrec/data/fig_github.png)
+![A diagram of the algorithm](shrec/resources/fig_github.png)
 
 ## Usage
 
