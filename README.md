@@ -24,6 +24,14 @@ Install the latest development version directly from GitHub
 	git clone https://github.com/williamgilpin/shrec
 	cd shrec
 	pip install -I . 
+
+Alternatively, using pip
+
+	pip install git+git://github.com/williamgilpin/shrec
+
+Test that everything is working
+
+    python -m unittest
     
 ## Additional information
 
