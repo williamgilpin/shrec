@@ -13,11 +13,14 @@ from sklearn.decomposition import FastICA
 
 OUTPUT_DIR = './dump_results'
 SEED = 0
-tau_vals = [1, 5, 10, 20, 50, 100]
+tau_vals = np.array([1, 5, 10, 20, 50, 100])
 latent_dim_vals = [1, 5, 10, 20, 50]
 
-train_data_name = "gene" # pick which dataset to use
-# train_data_name = "eco" # pick which dataset to use
+tau_vals = [1, 5, 10, 20]
+latent_dim_vals = [1, 5, 10]
+
+# train_data_name = "gene" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
 # train_data_name = "rat" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use
@@ -32,6 +35,8 @@ true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver.npy'), a
 train_data = train_data[:]
 true_signal = true_signal[:train_data.shape[0]]
 
+## Avoid using hyperparameters that are too large for the dataset
+# tau_vals = tau_vals[tau_vals < len(true_signal)]
 
 latent_dim_vals[-1] = min(latent_dim_vals[-1], train_data.shape[1])
 

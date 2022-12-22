@@ -11,5 +11,5 @@ setup(name = 'shrec',
       #   "seaborn": ["seaborn"]
       # },
       package_dir={'shrec': 'shrec'},
-      package_data={'shrec': ['data/*']},
+      package_data={'shrec': ['data/*', 'resources/*', 'benchmarks/*']},
      )

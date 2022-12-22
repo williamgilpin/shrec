@@ -1,4 +1,8 @@
-'''
+"""
+NOTE: Please cite and use the original code below if you use this code in your work.
+This code is included in this repository for convenience and to ensure reproducibility,
+but it was not developed by the author of this repository.
+
 Non-parametric computation of entropy and mutual-information
 Adapted by G Varoquaux for code created by R Brette, itself
 from several papers (see in the code).
@@ -6,7 +10,7 @@ This code is maintained at https://github.com/mutualinfo/mutual_info
 Please download the latest code there, to have improvements and 
 bug fixes.
 These computations rely on nearest-neighbor statistics
-'''
+"""
 import numpy as np
 
 from scipy.special import gamma,psi
@@ -96,6 +100,21 @@ def mutual_information(variables, k=1):
     return (sum([entropy(X, k=k) for X in variables])
             - entropy(all_vars, k=k))
 
+def mutual_information_scaled(x, y, k=1):    
+    """
+    A scaled version of mutual information, which is bounded between 0 and 1.
+    """     
+    lo, hi = (
+        mutual_information((np.random.permutation(x)[:, None],
+                            np.random.permutation(y)[:, None]),
+                           k=k
+                          ), 
+        mutual_information((x[:, None], 
+                            y[:, None]), 
+                           k=k), 
+    )
+    mi = mutual_information((x[:, None], y[:, None]), k=k)
+    return (mi - lo) / (hi - lo)
 
 def mutual_information_2d(x, y, sigma=1, normalized=False):
     """
@@ -152,6 +171,7 @@ def conditional_information(driver, response, **kwargs):
         response = response[:, None]
     h_resp = entropy(response, **kwargs)
     return h_resp - mutual_information((response, driver), **kwargs)
+
 
 
 

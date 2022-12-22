@@ -1,5 +1,13 @@
 import numpy as np
 import warnings
+import os
+
+def load_data():
+    """Load precomputed data for the Lorenz system"""
+    dirname = os.path.dirname(__file__)
+    X_measure = np.load(dirname + "/data/lorenz_data.npy", allow_pickle=True)
+    y_driver = np.load(dirname + "/data/lorenz_driver.npy", allow_pickle=True)
+    return X_measure, y_driver
 
 class DrivenLorenz:
     """

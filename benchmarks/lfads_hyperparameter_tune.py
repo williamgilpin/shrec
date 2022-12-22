@@ -14,11 +14,14 @@ factors_dim_vals = [5, 10, 20, 50]
 OUTPUT_DIR = './dump_results'
 SEED = 0
 
-train_data_name = "rat" # pick which dataset to use
+# train_data_name = "rat" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
 DATA_DIR = './data'
 
-train_data = np.load(os.path.join(DATA_DIR, train_data_name + '_data_val.npy'), allow_pickle=True)
-true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver_val.npy'), allow_pickle=True)
+# train_data = np.load(os.path.join(DATA_DIR, train_data_name + '_data_val.npy'), allow_pickle=True)
+# true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver_val.npy'), allow_pickle=True)
+train_data = np.load(os.path.join(DATA_DIR, train_data_name + '_data.npy'), allow_pickle=True)
+true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver.npy'), allow_pickle=True)
 true_signal = true_signal[:train_data.shape[0]]
 
 train_data = torch.Tensor(np.array([train_data]).T).to(device)
@@ -80,7 +83,7 @@ for params in all_params:
         signal = np.squeeze(np.array(signal))
         pstr = "_".join([str(x) for x in params])
         signal.dump(os.path.join(OUTPUT_DIR, model_name, train_data_name, fname_base + pstr + '.npy'))
-    except ValueErro:
+    except ValueError:
         print("Error with hyperparameters: ", lr, bs, fd, flush=True)
         pass
 

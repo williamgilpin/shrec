@@ -41,7 +41,6 @@ for params in all_params:
 
     # Sometimes bad hyperparameters trigger a NaN loss
     try:
-        #model = DCA(d=dim_val, T=tau, rng_or_seed=SEED)
         model = GPFAContinuous(
             n_components=1, num_trials=trial_val, latent_dimensionality=dim_val
         )

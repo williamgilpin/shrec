@@ -8,8 +8,9 @@ The **sh**ared **rec**urrence method for identifying causal drivers of collectio
 
 ```python
 from shrec.models import RecurrenceManifold
+from benchmarks.dynamical_systems import load_data
 
-X = load_data() # shape (n_timepoints, n_series)
+X, y_true = load_data() # shape (n_timepoints, n_series)
 model = RecurrenceManifold()
 y_recon = model.fit_predict(X)
 ```
@@ -66,8 +67,8 @@ Additional dependencies for certain demonstrations
 + seaborn
 
 
-## Development
+## Development and Contributing
 
-We welcome any advice or improvments. Please feel free to reach reach out, raise issues, or submit pull requests!
+We welcome any suggestions or improvments. Please feel free to reach reach out, raise issues, or submit pull requests.
 
 
