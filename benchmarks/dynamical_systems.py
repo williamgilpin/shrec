@@ -9,6 +9,34 @@ def load_data():
     y_driver = np.load(dirname + "/data/lorenz_driver.npy", allow_pickle=True)
     return X_measure, y_driver
 
+class DrivenLogistic:
+    """
+    An ensemble of logistic systems driven by an external signal
+    """
+    def __init__(self, n_response, lambda_driver=3.5, kappa=0.45, noise=0.04, random_state=None):
+        self.n_response = n_response
+        self.kappa = kappa
+        self.lambda_driver = lambda_driver
+        self.noise = noise
+        np.random.seed(random_state)
+        self.random_state = random_state
+        self.lamba_response = 3.81 + np.random.random(self.n_response) * 0.08 * 2
+
+    def rhs_response_ensemble(self, t, X, xr):
+        return np.mod((self.lamba_response * X * (1 - X) + self.kappa * xr), 1.0)
+
+    def rhs(self, t, X):
+        """
+        Return the next value of the driven map
+        """
+        xd, xr = X[0], X[1:]
+        xd_next = self.lambda_driver * xd * (1 - xd)
+        xr_next = self.rhs_response_ensemble(t, xr, xd) 
+        if self.noise > 0:
+            xr_next += self.noise * np.random.normal(size=xr.shape)
+        return np.hstack([xd_next, xr_next])
+
+
 class DrivenLorenz:
     """
     An ensemble of Lorenz systems driven by an external signal
