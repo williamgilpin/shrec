@@ -51,12 +51,10 @@ Install optional dependencies
 	conda install seaborn pandas 
 
 Dependencies
-+ pandas
 + scikit-learn
 + scipy
 + numpy
 + h5py
-+ scanpy
 + python-igraph
 + leidenalg
 + networkx
@@ -65,6 +63,7 @@ Dependencies
 Additional dependencies for certain demonstrations
 + matplotlib 
 + seaborn
++ pandas
 
 
 ## Development and Contributing
