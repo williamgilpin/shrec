@@ -889,7 +889,6 @@ class RecurrenceManifold(RecurrenceModel):
         elapsed = t2 - t1
         print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
 
-        
         if not self.use_sparse:
             ## Enforce a minimum sparsity level
             dist_mat_bin = sparsify(
@@ -905,7 +904,6 @@ class RecurrenceManifold(RecurrenceModel):
 
         # self.uncompressed_matrix = neighbor_matrix.copy()            
         # neighbor_matrix = matrix_lowrank(neighbor_matrix, 1)
-
         root_index = np.argmin(np.min(neighbor_matrix, axis=1))
         self.root_index = root_index
         
