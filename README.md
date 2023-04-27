@@ -40,10 +40,10 @@ Install core dependencies
 
 	conda install numpy scipy matplotlib networkx h5py numba
 
-Install scanpy using conda. If you are using bash, you may need to remove the quotes around networkx
+<!-- Install scanpy using conda. If you are using bash, you may need to remove the quotes around networkx
 
 	conda install -c conda-forge scikit-learn scanpy python-igraph leidenalg 
-	pip3 install --upgrade-strategy only-if-needed graspologic 'networkx[default]'
+	pip3 install --upgrade-strategy only-if-needed graspologic 'networkx[default]' -->
 
 Install optional dependencies
 
