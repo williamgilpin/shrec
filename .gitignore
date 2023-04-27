@@ -7,6 +7,7 @@ private*
 .vscode/
 .vscode/*
 big_data/
+timing_results*
 
 
 ### dev files

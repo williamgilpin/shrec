@@ -55,8 +55,8 @@ Dependencies
 + scipy
 + numpy
 + h5py
-+ python-igraph
-+ leidenalg
+<!-- + python-igraph
++ leidenalg -->
 + networkx
 + graspologic
 

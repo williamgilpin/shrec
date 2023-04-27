@@ -19,6 +19,7 @@ train_data_name = "gene" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use
 DATA_DIR = './data'
 
+
 # use train/val split for all tuning
 # train_data = np.load(os.path.join(DATA_DIR, train_data_name + '_data_val.npy'), allow_pickle=True)
 # true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver_val.npy'), allow_pickle=True)
