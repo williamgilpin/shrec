@@ -12,8 +12,8 @@ OUTPUT_DIR = './dump_results'
 SEED = 0
 latent_dim_vals = [2, 5, 10, 20]
 
-train_data_name = "gene" # pick which dataset to use
-# train_data_name = "eco" # pick which dataset to use
+# train_data_name = "gene" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
 # train_data_name = "monkey" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use

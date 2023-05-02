@@ -20,11 +20,14 @@ latent_dim_vals = [1, 5, 10, 20, 50]
 OUTPUT_DIR = './dump_results'
 SEED = 0
 
-train_data_name = "gene" # pick which dataset to use
-# train_data_name = "eco" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
+crop_ind = -1 # crop so the dilated convolutions are even
+
+# train_data_name = "gene" # pick which dataset to use
 # train_data_name = "rat" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use
+# crop_ind = 2989 # crop so the dilated convolutions are even
 DATA_DIR = './data'
 
 # use train/val split for all tuning
@@ -33,7 +36,7 @@ DATA_DIR = './data'
 # oracle-benchmarks for unsupervised learning---make the baselines more competitive
 train_data = np.load(os.path.join(DATA_DIR, train_data_name + '_data.npy'), allow_pickle=True)
 true_signal = np.load(os.path.join(DATA_DIR, train_data_name + '_driver.npy'), allow_pickle=True)
-train_data = train_data[:2989]
+train_data = train_data[:crop_ind]
 true_signal = true_signal[:train_data.shape[0]]
 
 input = torch.tensor(train_data.T[None, ...], dtype=torch.float32)

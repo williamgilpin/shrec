@@ -1,7 +1,6 @@
 #!/usr/bin/python
 import numpy as np
 import os
-from scipy.signal import resample
 import itertools
 
 from gpfa import GPFAContinuous
@@ -12,8 +11,8 @@ SEED = 0
 latent_dim_vals = [1, 5]
 num_trial_vals = [5, 10, 20, 40, 80]
 
-train_data_name = "gene" # pick which dataset to use
-# train_data_name = "eco" # pick which dataset to use
+# train_data_name = "gene" # pick which dataset to use
+train_data_name = "eco" # pick which dataset to use
 # train_data_name = "rat" # pick which dataset to use
 # train_data_name = "fluid" # pick which dataset to use
 # train_data_name = "ecg" # pick which dataset to use

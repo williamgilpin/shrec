@@ -2,6 +2,12 @@ import numpy as np
 import scipy
 import warnings
 import datetime
+try:
+    import pandas as pd
+    has_pandas = True
+except ImportError:
+    warnings.warn("Could not import pandas, missing value filling will not function.")
+    has_pandas = False
 
 from .utils import *
 from .utils import embed_ts, standardize_ts, minmax_ts, find_psd
@@ -417,6 +423,9 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         aggregation_order (float): The order of aggregation to use. The default of 1 
             corresponds to a simple average of the distance matrices, while
             a value near infinity corresponds to a maximum (L-\infty) aggregation.
+        fill_nan (bool): Whether to fill NaN values in the input time series using 
+            forward filling
+
 
     To do:
         Alternative distance metrics; implicit embedding via DTW calculation
@@ -449,7 +458,8 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         metric="euclidean",
         scale=1.0,
         aggregation_order=1.0,
-        padding="symmetric"
+        padding="symmetric",
+        fill_nan=False,
     ):
 
         self.tolerance = tolerance
@@ -470,8 +480,31 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.metric = metric
         self.scale = scale
         self.aggregation_order = float(aggregation_order)
+        self.fill_nan = fill_nan
         
         np.random.seed(self.random_state)
+
+    def _fillna(self, X):
+        """
+        Fill NaN values in the input time series using forward filling
+
+        Args:
+            X (array-like): A time series of shape (N, d) or (N,)
+
+        Returns:
+            X_filled (array-like): A time series of shape (N, d) or (N,) with NaN values
+                filled using forward filling
+        """
+        if has_pandas:
+            Xc = pd.DataFrame(X)
+            Xc = Xc.fillna(method="ffill")
+            Xc = Xc.fillna(method="bill")
+            X_filled = Xc.values
+        else:
+            warnings.warn("Install pandas to use NaN filling")
+            X_filled = np.copy(X)
+
+        return X_filled
 
     def _make_embedding(self, X):
         """
@@ -534,6 +567,9 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         if self.standardize:
             X = StandardScaler().fit_transform(X)
             X = standardize_ts(X)
+
+        if self.fill_nan:
+            X = self._fillna(X)
         
         return X
 
