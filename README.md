@@ -54,16 +54,18 @@ Dependencies
 + scikit-learn
 + scipy
 + numpy
-+ h5py
 <!-- + python-igraph
 + leidenalg -->
-+ networkx
-+ graspologic
+
+Additional dependencies only necessary for discrete drivers
++ networkx (necessary for learning discrete drivers only)
++ graspologic (necessary for learning discrete drivers only)
 
 Additional dependencies for certain demonstrations
 + matplotlib 
 + seaborn
 + pandas
++ h5py
 
 
 ## Development and Contributing
