@@ -17,7 +17,6 @@ y_recon = model.fit_predict(X)
 
 Additional examples can be found in the [`demos.ipynb`](demos.ipynb) notebook.
 
-
 ## Installation
 
 Install the latest development version directly from GitHub
