@@ -27,7 +27,7 @@ Install the latest development version directly from GitHub
 
 Alternatively, using pip
 
-	pip install git+git://github.com/williamgilpin/shrec
+	pip install git+https://github.com/williamgilpin/shrec
 
 Test that everything is working
 
