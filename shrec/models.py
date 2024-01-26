@@ -252,7 +252,6 @@ def data_to_connectivity(X,
         np.linalg.norm(X - np.median(X, axis=1, keepdims=True), axis=-1)
     )
     thresh = 1 / (scale * thresh)
-    #print(thresh, "\n-------\n")
     
     ## Iterate over all time series, compute distance matrix
     # dstack, bdstack = np.zeros((2, nb, nt, nt))
@@ -425,6 +424,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             a value near infinity corresponds to a maximum (L-\infty) aggregation.
         fill_nan (bool): Whether to fill NaN values in the input time series using 
             forward filling
+        verbose (bool): Whether to print progress updates
 
 
     To do:
@@ -460,6 +460,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         aggregation_order=1.0,
         padding="symmetric",
         fill_nan=False,
+        verbose=False,
     ):
 
         self.tolerance = tolerance
@@ -481,6 +482,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.scale = scale
         self.aggregation_order = float(aggregation_order)
         self.fill_nan = fill_nan
+        self.verbose = verbose
         
         np.random.seed(self.random_state)
 
@@ -656,6 +658,7 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             y (ignored) : Not used, present here for consistency with sklearn API
         """
         return self.fit_predict(X, y)
+    
     
 class ClassicalRecurrenceClustering(RecurrenceModel):
     """
@@ -884,9 +887,6 @@ class RecurrenceClustering(RecurrenceModel):
     #     return embedding
 
 
-
-
-
 class RecurrenceManifold(RecurrenceModel):
     """
     Assign continuous time labels to a set of timepoints by finding recurrence families
@@ -911,10 +911,13 @@ class RecurrenceManifold(RecurrenceModel):
         X = self._preprocess(X)
         X = self._make_embedding(X)
         
+
+        if self.verbose:
+            print("Computing distance matrix... ", flush=True, end='')
+            
         # Slowest step: compute the distance matrix for each example      
         ## an alternative approach that dodges the optimizer
         t1 = datetime.now()
-        print("Computing distance matrix... ", flush=True, end='')
         bd = data_to_connectivity(X, 
                                     time_exclude=self.time_exclude,
                                     use_sparse=self.use_sparse,
@@ -923,7 +926,8 @@ class RecurrenceManifold(RecurrenceModel):
                                     )
         t2 = datetime.now()
         elapsed = t2 - t1
-        print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
+        if self.verbose:
+            print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
 
         if not self.use_sparse:
             ## Enforce a minimum sparsity level
@@ -932,7 +936,8 @@ class RecurrenceManifold(RecurrenceModel):
                 1 - self.tolerance,
                 weighted=self.weighted_connectivity
             )
-            print("Matrix sparsity is: ", sparsity(dist_mat_bin))
+            if self.verbose:
+                print("Matrix sparsity is: ", sparsity(dist_mat_bin))
         else:
             dist_mat_bin = bd
 
@@ -945,7 +950,8 @@ class RecurrenceManifold(RecurrenceModel):
         
         # rescale
         # neighbor_matrix = (neighbor_matrix - np.min(neighbor_matrix) + 1e-6) / (np.max(neighbor_matrix) - np.min(neighbor_matrix) + 1e-6)
-        print("Computing diffusion components... ", flush=True, end='')
+        if self.verbose:
+            print("Computing diffusion components... ", flush=True, end='')
         t1 = datetime.now()
         if self.store_adjacency_matrix:
             self.adjacency_matrix = neighbor_matrix
@@ -964,7 +970,8 @@ class RecurrenceManifold(RecurrenceModel):
         pt_vals = embedder.fit_transform(neighbor_matrix).squeeze()
         t2 = datetime.now()
         elapsed = t2 - t1
-        print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
+        if self.verbose:
+            print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
 
         self.indices = np.arange(len(pt_vals))
         self.labels_ = nan_fill(pt_vals)

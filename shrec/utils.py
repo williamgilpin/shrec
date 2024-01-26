@@ -193,8 +193,12 @@ def nan_fill(a):
             out[i] = out[i- 1]
     return out
 
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.stattools import kpss
+try:
+    from statsmodels.tsa.stattools import adfuller
+    from statsmodels.tsa.stattools import kpss
+    has_stat = True
+except ImportError:
+    has_stat = False
 
 def transform_stationary(ts, pthresh=0.05):
     """ 
@@ -210,6 +214,8 @@ def transform_stationary(ts, pthresh=0.05):
     Returns:
         out (np.ndarray): Transformed time series.
     """
+    if not has_stat:
+        warnings.warn("Statsmodels not found, install to use this function")
     ts = np.squeeze(ts).copy()
     ad_fuller = adfuller(ts)
     kpss_test = kpss(ts)
