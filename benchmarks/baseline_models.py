@@ -48,7 +48,7 @@ class CCATimeSeries(CCA):
     def transform(self, X):
         Y = X[self.time_lag:]
         X = X[:-self.time_lag]
-        Xc, Yc = self.cca.transform(X, Y)
+        Xc, _ = self.cca.transform(X, Y)
         #print(Xc.shape, Yc.shape)
         if self.pad:
             Xc = np.vstack([Xc, Xc[-self.time_lag:][::-1]])

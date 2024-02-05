@@ -10,12 +10,12 @@ except ImportError:
     has_pandas = False
 
 from .utils import *
-from .utils import embed_ts, standardize_ts, minmax_ts, find_psd
+from .utils import embed_ts, standardize_ts, minmax_ts, find_psd, common_neighbors_ratio, nan_fill
 
-from sklearn.cluster import SpectralClustering
-from sklearn.manifold import SpectralEmbedding
-from sklearn.decomposition import PCA
-    
+# from sklearn.cluster import SpectralClustering
+# from sklearn.manifold import SpectralEmbedding
+# from sklearn.decomposition import PCA
+from sklearn.decomposition import TruncatedSVD
 
 def solve_union_find(lists):
     disjoint = DisjointSet()
@@ -32,6 +32,10 @@ class DisjointSet:
     
     Adapted fro open-source code:
     https://stackoverflow.com/questions/67805907
+
+    Attributes:
+        elements (dict): A dictionary of elements in the set
+
     """
 
     class Element:
@@ -70,41 +74,6 @@ class DisjointSet:
         for key in self.elements:
             result[self.find(key)].append(key)
         return result
-
-
-
-# import scanpy as sc
-# def find_pseudotime(dmat, root, n_branchings=0, fill=None, n_comps=15):
-#     """
-#     Compute pseudotime from a distance matrix
-    
-#     Currently requires scanpy to be installed
-    
-#     Args:
-#         dmat (array-like): a distance matrix of shape (N, N)
-#         root (integer): the index to use as the root
-#         n_branchings (int): the expected number of bifurcations
-#         fill (float or None): fill value for points unassigned pseudotime
-#         n_comps (int): the number of components to use in the diffusion map
-
-#     Returns
-#         pt_vals (array): a list of pseudotime assignments of length N
-#     """
-#     ndim = dmat.shape[0]
-#     adata = sc.AnnData(np.zeros((ndim, 3)), dtype='float64')
-#     sc.pp.neighbors(adata, n_neighbors=3, n_pcs=3)  ## no effect
-#     # this distance matrix is not used
-#     adata.obsp["distances"] = scipy.sparse.csr_matrix(dmat.shape)
-#     if scipy.sparse.issparse(dmat):
-#         adata.obsp["connectivities"] = dmat
-#     else:
-#         adata.obsp["connectivities"] = scipy.sparse.csr_matrix(dmat)
-#     adata.uns["iroot"] = root
-#     sc.tl.diffmap(adata, n_comps=n_comps) # Diffusion map calculation
-#     sc.tl.dpt(adata, n_branchings=n_branchings) # find maximum spanning tree
-#     pt_vals = np.array(adata.obs["dpt_pseudotime"])
-#     pt_vals[np.isinf(pt_vals)] = fill
-#     return pt_vals
 
 
 import scipy.sparse as sp
@@ -207,15 +176,106 @@ def _leiden(g, method="graspologic", objective="modularity", resolution=1.0, ran
 from scipy.spatial.distance import cdist
 from scipy.spatial import KDTree
 import scipy.sparse
-from scipy.stats import iqr
 
-try:
-    from tslearn.metrics import cdist_dtw
-except ImportError:
-    has_tslearn = False
+
+from scipy.optimize import fsolve
+
+relu = lambda x: np.maximum(0, x)
+def dataset_to_simplex(X, k=20, tol=1e-6, precomputed=False):
+    """
+    Given a dataset X, return the fuzzy simplicial simplex formed by the points in X
+
+    Args:
+        X (np.ndarray): dataset of shape (n_samples, n_features)
+        k (int): number of nearest neighbors to use
+        tol (float): tolerance for the solver
+        precomputed (bool): whether the input is a precomputed distance matrix. If False,
+            the distance matrix will be computed from X along the first dimension
+
+    Returns:
+        wmat (np.ndarray): adjacency matrix of the simplex, with 
+            shape (n_samples, n_samples)
+
+    References:
+        McInnes, Leland, John Healy, and James Melville. "Umap: Uniform manifold 
+            approximation and projection for dimension reduction." 
+            arXiv preprint arXiv:1802.03426 (2018).
+    
+    """
+    if not precomputed:
+        dmat = cdist(X, X)
+    else:
+        dmat = X.copy()
+
+    n = dmat.shape[0]
+    dmat_zerofilled = dmat.copy()
+    dmat_zerofilled[dmat_zerofilled < 1e-10] = np.inf
+    dists = np.partition(dmat_zerofilled, k + 1, axis=1) # distances to k nearest neighbors
+    dists = np.sort(dists, axis=1)[:, 1:k+1]  # drop self
+    # dists = np.sort(dmat, axis=1)[:, 1:k+1] # distances to k nearest neighbors
+    rho = dists[:, 0] # distance to the nearest neighbor
+    for i in range(n):
+        # if dists[i, -1] < tol: # maximum distance is nearly zero
+        #     dmat[i] = np.exp(-relu(dmat[i]) / (1e-8 + np.std(dmat[i])))
+        #     continue
+        func = lambda sig: sum(np.exp(-relu(dists[i] - rho[i]) / sig)) - np.log2(k)
+        jac = lambda sig: sum(np.exp(-relu(dists[i] - rho[i]) / sig) * relu(dists[i] - rho[i])) / sig**2
+        sigma_i = fsolve(func, rho[i], fprime=jac, xtol=tol)[0]
+        dmat[i] = np.exp(-relu(dmat[i] - rho[i]) / sigma_i)
+    wmat = dmat + dmat.T - dmat * dmat.T
+    return wmat
+
+from umap.umap_ import fuzzy_simplicial_set
+from scipy.sparse import coo_matrix
+
+def data_to_connectivity2(X, k=10, tol=1e-5, verbose=False):
+    """
+    Given a list of datasets, compute their simplicial complexes and average
+
+    Args:
+        X (np.ndarray): dataset of shape (n_samples, n_times, n_dims)
+        k (int): number of nearest neighbors to use
+        tol (float): tolerance for the solver
+        verbose (bool): whether to print progress
+
+    Returns:
+        wmat (np.ndarray): adjacency matrix of the simplex, with 
+            shape (n_samples, n_samples)
+    
+    """
+    nb, nt, nd = X.shape
+
+    if not verbose:
+        warnings.filterwarnings('ignore') ## fsolve often throws warnings
+
+    ## Use built-in implementation
+    # wmat = np.zeros((nt, nt))
+    # for ind, X0 in enumerate(X):
+    #     if verbose and ind % (nb // 10) == 0:
+    #         print(ind, "/", len(X), flush=True)
+    #     wmat += dataset_to_simplex(X0, k=k, tol=tol) / nb
+
+    wmat = coo_matrix(np.zeros((nt, nt)))
+    for ind, X0 in enumerate(X):
+        if verbose and ind % (nb // 10) == 0:
+            print(ind, "/", len(X), flush=True)
+        result, sigmas, rhos, dists = fuzzy_simplicial_set(X0, k, 0, 'euclidean', return_dists=True)
+        # wmat += result / nb
+        # wmat += np.array(result.todense()) / nb
+
+        sigmas, rhos = np.asarray(sigmas), np.asarray(rhos)
+        dmat = cdist(X0, X0)
+        dmat = np.exp(-relu(dmat - rhos[None, :]) / sigmas[None, :])
+        dmat = dmat + dmat.T - dmat * dmat.T # symmetrize
+        wmat += dmat / nb
+
+    wmat  = np.asarray(wmat)
+    # wmat = np.array(wmat.todense())
+
+    return wmat
 
 def data_to_connectivity(X, 
-                         time_exclude=0, use_sparse=None, scale=1.0, 
+                         time_exclude=0,  scale=1.0, 
                          ord=1.0, metric="euclidean"):
     """
     Given a stack of M time series, each of shape N x D, compute a 
@@ -238,8 +298,6 @@ def data_to_connectivity(X,
     Returns:
         bd (array-like): A binarized distance matrix of shape N x N
     """
-
-    # if metric == "dtw" and has_tslearn: cdist = cdist_dtw
     
     sel_inds = np.all(np.isclose(X, X[:, :1, :], 1e-12), axis=(1, 2))
     if np.sum(sel_inds) > 0:
@@ -255,52 +313,14 @@ def data_to_connectivity(X,
     
     ## Iterate over all time series, compute distance matrix
     # dstack, bdstack = np.zeros((2, nb, nt, nt))
-    if use_sparse:
-        bd = scipy.sparse.csr_matrix((nt, nt))
-    else:
-        bd = np.zeros((nt, nt))
+    bd = np.zeros((nt, nt))
 
     for i in range(nb):
-        
-        if not use_sparse:
-            dmat = cdist(X[i], X[i]) # pairwise distance matrix
-            ## Normalize and exponentiate to find connectivity matrix then mean merge
-            surprise = dmat / np.std(dmat)
-            #thresh = 1.0
-            bd += (1 / nb) * np.exp(-surprise * ord / thresh) 
-        else:
-            a = X[i]
-            kd = KDTree(a)
-            dists, _ = kd.query(a, k=5)
-            dists = dists[:, 1:] # distance to k-nearest neighbors excluding self
-            
-            thresh = np.percentile(dists[dists > 0], 10)
-
-            ## check math by cheating with exact threshold of dense matrix
-            # thresh = np.percentile(np.ravel(cdist(X[i], X[i])), 5)
-            
-            # zero everything greater than threshold
-            dmat = kd.sparse_distance_matrix(kd, 
-                                             thresh, 
-                                             p=2.0, 
-                                             output_type='coo_matrix')
-
-            dmat =  scipy.sparse.csr_matrix(dmat)
-            nz = dmat.nonzero()
-            mn_mat = dmat[nz].mean()
-            std_mat = np.sqrt((dmat.multiply(dmat))[nz].mean() - mn_mat**2)
-            if std_mat < 1e-10:
-                std_mat = 1.0
-            dmat[nz] = - (dmat[nz] / std_mat) / thresh # negative zscore
-            dmat.setdiag(0)
-            dmat = dmat.expm1()
-            dmat.data += 1
-            dmat.data *= (1 / nb)
-            dmat.setdiag(0)
-            bd += dmat
-            
-            if np.any(np.isnan(dmat.toarray())):
-                print(thresh, sparsity(dmat))
+        dmat = cdist(X[i], X[i]) # pairwise distance matrix
+        ## Normalize and exponentiate to find connectivity matrix then mean merge
+        surprise = dmat / np.std(dmat)
+        #thresh = 1.0
+        bd += (1 / nb) * np.exp(-surprise * ord / thresh) 
     
     # remove adjacent timescales by zeroing near-diagonals in distance matrix
     if time_exclude > 0:
@@ -590,49 +610,6 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         all_dist_mat += (np.eye(all_dist_mat.shape[0]) * 1e16)[..., None]
         return all_dist_mat
 
-
-    def _threshold_matrix(self, d):
-        """
-        Binarize a distance matrix or stack of distance matrices
-
-        Args:
-            d (np.array): distance matrix or stack of distance matrices
-        """
-        # print("asymmetry: ", np.sum(np.abs(d.T -  d)))
-        if self.weighted_connectivity:
-            d = distance_to_connectivity(d, sparsity=(1 - self.tolerance))
-
-        if len(d.shape) < 3:
-            dist_mat_bin = sparsify(d, sparsity=(1 - self.tolerance)).astype(int)
-        # stack sparsity
-        else:
-            dist_mat_bin = np.dstack(
-                [
-                    # sparsify(d[..., i], (1 - d.shape[-1] * self.tolerance)).astype(int)
-                    sparsify(d[..., i], (1 - self.tolerance)).astype(int)
-                    for i in range(d.shape[-1])
-                ]
-            )
-
-        if self.time_exclude > 0:
-            mask_mat = np.ones_like(dist_mat_bin)
-            mask_mat = 1 - (
-                np.triu(mask_mat, k=-self.time_exclude)
-                * np.tril(mask_mat, k=self.time_exclude)
-            )
-            dist_mat_bin *= mask_mat.astype(int)
-
-        return dist_mat_bin
-
-    def _flatten_binary_matrix(self, bdmat):
-        """
-        Given a stack of binary matrices, flatten along the last dimension
-        """
-        n = bdmat.shape[-1]
-        cmat = np.sum(bdmat, axis=-1)
-        cmat = sparsify(cmat, 1 - self.tolerance)
-        return cmat
-
     def _neighbors_to_cliques(self, bdmat):
         """
         Given a binary neighbor matrix, convert to a clique graph
@@ -658,6 +635,63 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
             y (ignored) : Not used, present here for consistency with sklearn API
         """
         return self.fit_predict(X, y)
+
+from sklearn.manifold import Isomap
+class HirataNomuraIsomap(RecurrenceModel):
+    """
+    An implementation of the recurrence manifold model of Hirata et al. (2008) using
+    the consensus similarity matrix of Nomura et al. (2022).
+
+    Parameters:
+        percentile (float): The percentile of the distance matrix to use as a threshold
+            for determining whether two nodes are neighbors.
+        n_components (int): The number of components to use in the Isomap embedding.
+    """
+    def __init__(self, n_components=2, percentile=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.n_components = n_components
+        self.percentile = percentile
+    
+    def fit(self, X):
+        np.random.seed(self.random_state)
+        X0 = np.copy(X)
+        X = self._preprocess(X)
+        X = self._make_embedding(X)
+
+        # Compute the distance matrix
+        amat = np.zeros((X.shape[1], X.shape[1]))
+        for i in range(X.shape[0]):
+            dmat = cdist(X[i], X[i])
+            thresh = np.percentile(dmat, self.percentile)
+            ## neighbor aggregation
+            amat += (dmat <= thresh).astype(int)
+        # Boolean aggregation
+        amat[amat > 0] = 1
+
+        wmat = common_neighbors_ratio(amat)
+        if self.store_adjacency_matrix:
+            self.adjacency_matrix = wmat
+
+        iso = Isomap(n_components=self.n_components, metric='precomputed')
+        pt_vals = iso.fit_transform(wmat)
+
+        # Compare to spectral embedding
+        # embedder = SpectralEmbedding(
+        #     n_components=self.n_components, 
+        #     random_state=self.random_state, 
+        #     affinity='precomputed'
+        # )
+        # pt_vals = embedder.fit_transform(1 - wmat)
+
+        self.indices = np.arange(len(pt_vals))
+        self.labels_ = nan_fill(pt_vals)
+        return self
+    
+    def transform(self, X):
+        X = self._preprocess(X)
+        X = self._make_embedding(X)
+        wmat = common_neighbors_ratio(X)
+        return wmat
     
     
 class ClassicalRecurrenceClustering(RecurrenceModel):
@@ -779,12 +813,13 @@ class RecurrenceClustering(RecurrenceModel):
         nbatch, ntime, ndim = X.shape
         
         dist_mat_bin = data_to_connectivity(X, 
-                          time_exclude=self.time_exclude,
-                          use_sparse=self.use_sparse,
-                          ord=self.aggregation_order,
-                          scale=self.scale
-                         )
-       
+                            time_exclude=self.time_exclude,
+                            use_sparse=self.use_sparse,
+                            ord=self.aggregation_order,
+                            scale=self.scale
+                            )
+        #  dist_mat_bin =  = data_to_connectivity2(X)
+
         dist_mat_bin = sparsify(dist_mat_bin, (1 - self.tolerance), weighted=self.weighted_connectivity)
         #neighbor_matrix = self._neighbors_to_cliques(dist_mat_bin)
         neighbor_matrix = dist_mat_bin 
@@ -809,82 +844,6 @@ class RecurrenceClustering(RecurrenceModel):
 
         self.has_unclassified = np.any(self.labels_ < 0)
         self.n_clusters = len(np.unique(self.labels_)) - self.has_unclassified
-
-
-
-    def get_driving(self, X):
-        """
-        Return the best estimate of the driving signal, using a maximum variance 
-        heuristic
-        
-        Args:
-            X (array-like): A matrix of shape (n_timepoints, n_features)
-        
-        DEV: switch to a heuristic that maximizes spacing
-        """
-        vals_recon = self._get_full_driving(X)
-
-        # Select best cycle example using largest variance principle
-        max_spread_inds = np.argmax(
-            np.sum(np.var(vals_recon, axis=1), axis=-1), axis=-1
-        )
-
-        vals_recon = vals_recon[np.arange(len(max_spread_inds)), :, max_spread_inds]
-        return vals_recon
-
-    def _get_full_driving(self, X):
-        """
-        Return all possible estimates of the driving signal across system. Negative 
-        indices are ignored
-        
-        Args:
-            X (array-like): A matrix of shape (n_timepoints, n_features)
-        
-        Returns:
-            class_example (np.ndarray): An array of shape (B, T, Te, D), where B is 
-                the index of an input dataset for reconstruction, T is the effective 
-                time index of the reconstructed signal. Te indexes particular points on 
-                the driver. Each value of Te corresponds to a particular driver 
-                representation.
-        
-        """
-
-        X = np.reshape(X, (X.shape[0], -1))
-        X = standardize_ts(X)  ## check this
-        X_embed = embed_ts(X, self.d_embed)
-        # (B, T, D)
-
-        class_example = list()
-        for label in np.unique(self.labels_):
-            if label < 0:
-                continue
-            # class_example.append(X_embed[:, self.labels_==label, :][:, 0])
-            class_example.append(X[:, self.labels_ == label, :])
-        time_cap = min([item.shape[1] for item in class_example])
-        class_example = [item[:, :time_cap] for item in class_example]
-        class_example = np.array(class_example)
-        class_example = np.moveaxis(class_example, (0, 1, 2), (1, 0, 2))
-
-        return class_example
-
-    # def transform(self, X):
-    #     """
-    #     Creates an embedding of a dataset based on the labels list
-        
-    #     Args:
-    #         X (np.ndarray): A matrix of shape (n_timepoints, n_features)
-        
-    #     Returns:
-    #         embedding (np.ndarray): An array of shape (B, T, D), where B is the index
-            
-    #     """
-    #     cycle_vals = self.get_driving(X)
-    #     all_cycles = list()
-    #     for i in range(cycle_vals.shape[0]):
-    #         sel_inds = self.labels_[self.labels_ >= 0]
-    #         all_cycles.append(cycle_vals[i][sel_inds])
-    #     embedding = np.array(all_cycles)
-    #     return embedding
 
 
 class RecurrenceManifold(RecurrenceModel):
@@ -918,35 +877,25 @@ class RecurrenceManifold(RecurrenceModel):
         # Slowest step: compute the distance matrix for each example      
         ## an alternative approach that dodges the optimizer
         t1 = datetime.now()
+
         bd = data_to_connectivity(X, 
-                                    time_exclude=self.time_exclude,
-                                    use_sparse=self.use_sparse,
-                                    ord=self.aggregation_order,
-                                    scale=self.scale
-                                    )
+                            time_exclude=self.time_exclude,
+                            # use_sparse=self.use_sparse,
+                            ord=self.aggregation_order,
+                            scale=self.scale
+                            )
+        # bd = data_to_connectivity2(X)
         t2 = datetime.now()
         elapsed = t2 - t1
         if self.verbose:
             print(f"Done in {elapsed.total_seconds():.2f} seconds", flush=True)
 
-        if not self.use_sparse:
-            ## Enforce a minimum sparsity level
-            dist_mat_bin = sparsify(
-                bd,
-                1 - self.tolerance,
-                weighted=self.weighted_connectivity
-            )
-            if self.verbose:
-                print("Matrix sparsity is: ", sparsity(dist_mat_bin))
-        else:
-            dist_mat_bin = bd
-
         neighbor_matrix = bd
 
         # self.uncompressed_matrix = neighbor_matrix.copy()            
         # neighbor_matrix = matrix_lowrank(neighbor_matrix, 1)
-        root_index = np.argmin(np.min(neighbor_matrix, axis=1))
-        self.root_index = root_index
+        # root_index = np.argmin(np.min(neighbor_matrix, axis=1))
+        # self.root_index = root_index
         
         # rescale
         # neighbor_matrix = (neighbor_matrix - np.min(neighbor_matrix) + 1e-6) / (np.max(neighbor_matrix) - np.min(neighbor_matrix) + 1e-6)
@@ -962,12 +911,16 @@ class RecurrenceManifold(RecurrenceModel):
         # )
         # pt_vals = eigvecs[:, -1]
 
-        embedder = SpectralEmbedding(
-            n_components=self.n_components, 
-            random_state=self.random_state, 
-            affinity='precomputed'
-        )
-        pt_vals = embedder.fit_transform(neighbor_matrix).squeeze()
+        # embedder = SpectralEmbedding(
+        #     n_components=self.n_components, 
+        #     random_state=self.random_state, 
+        #     affinity='precomputed'
+        # )
+        # pt_vals = embedder.fit_transform(neighbor_matrix).squeeze()
+
+        svd = TruncatedSVD(n_components=(self.n_components + 1))
+        svd.fit(neighbor_matrix)
+        pt_vals =svd.components_.T[:, 1:].squeeze()
         t2 = datetime.now()
         elapsed = t2 - t1
         if self.verbose:

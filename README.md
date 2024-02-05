@@ -53,6 +53,7 @@ Dependencies
 + scikit-learn
 + scipy
 + numpy
++ umap-learn
 <!-- + python-igraph
 + leidenalg -->
 

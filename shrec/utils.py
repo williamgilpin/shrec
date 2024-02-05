@@ -182,15 +182,44 @@ def detrend_ts(a, method="global_linear"):
     else:
         trend = (a[-1] - a[0]) * np.arange(a.shape[0])
         return np.squeeze(a - trend)
+    
+def common_neighbors_ratio(adj_matrix):
+    """
+    Given a binary adjacency matrix, compute the common neighbors ratio matrix. Each
+    entry in the matrix is one minus the ratio of the number of common neighbors of two 
+    nodes to the total unique neighbors of the two nodes.
+
+    Args:
+        adj_matrix (np.ndarray): A binary adjacency matrix.
+
+    Returns:
+        np.ndarray: A common neighbor-weighted adjacency matrix.
+    """
+    weighted_matrix = np.zeros_like(adj_matrix)
+    n = adj_matrix.shape[0]
+    all_neighbor_lists = []
+    for i in range(n):
+        neighbor_indices = np.where(adj_matrix[i] > 0)[0]
+        all_neighbor_lists.append(neighbor_indices)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            overlap = np.intersect1d(all_neighbor_lists[i], all_neighbor_lists[j])
+            union = np.union1d(all_neighbor_lists[i], all_neighbor_lists[j])
+            weighted_matrix[i, j] = 1 - len(overlap) / len(union)
+
+    weighted_matrix = weighted_matrix + weighted_matrix.T
+    np.fill_diagonal(weighted_matrix, 0)
+    return weighted_matrix
 
 def nan_fill(a):
     """
-    Backfill nan values in a numpy array 
+    Backfill nan values in a numpy array along the first axis
     """
     out = np.copy(a)
     for i in range(out.shape[0]):
-        if np.isnan(out[i]):
-            out[i] = out[i- 1]
+        if np.any(np.isnan(out[i])):
+            out[i] = out[i - 1]
     return out
 
 try:
