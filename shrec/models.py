@@ -880,7 +880,6 @@ class RecurrenceManifold(RecurrenceModel):
 
         bd = data_to_connectivity(X, 
                             time_exclude=self.time_exclude,
-                            # use_sparse=self.use_sparse,
                             ord=self.aggregation_order,
                             scale=self.scale
                             )
