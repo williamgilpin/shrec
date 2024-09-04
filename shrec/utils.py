@@ -5,7 +5,8 @@ import networkx as nx
 
 from scipy.linalg import hankel
 
-from scipy.signal import blackmanharris, periodogram
+from scipy.signal import periodogram
+from scipy.signal.windows import blackmanharris
 
 from datetime import datetime
 

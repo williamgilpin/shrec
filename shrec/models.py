@@ -919,7 +919,7 @@ class RecurrenceManifold(RecurrenceModel):
 
         svd = TruncatedSVD(n_components=(self.n_components + 1))
         svd.fit(neighbor_matrix)
-        pt_vals =svd.components_.T[:, 1:].squeeze()
+        pt_vals = svd.components_.T[:, 1:].squeeze()
         t2 = datetime.now()
         elapsed = t2 - t1
         if self.verbose:
