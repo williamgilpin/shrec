@@ -171,8 +171,6 @@ def _leiden(g, method="graspologic", objective="modularity", resolution=1.0, ran
 #
 ############################################################################
 
-
-
 from scipy.spatial.distance import cdist
 from scipy.spatial import KDTree
 import scipy.sparse
@@ -381,10 +379,6 @@ def distance_to_connectivity(dmat, dscale=None, sparsity=None):
         return connectivity
 
     return connectivity
-
-
-
-
 
 ############################################################################
 #
@@ -810,7 +804,6 @@ class RecurrenceClustering(RecurrenceModel):
             
         X = self._preprocess(X)
         X = self._make_embedding(X)
-        nbatch, ntime, ndim = X.shape
         
         dist_mat_bin = data_to_connectivity(X, 
                             time_exclude=self.time_exclude,
