@@ -202,3 +202,58 @@ class TestConnectivityGuard:
             "Connectivity warning fired on a well-connected graph (the MM22 "
             "oracle case); the λ₂ threshold is too aggressive."
         )
+
+
+def _cycle_affinity(n):
+    """Unweighted ring graph C_n: A[i,j] = 1 iff i and j are cyclic neighbours."""
+    A = np.zeros((n, n))
+    i = np.arange(n)
+    A[i, (i + 1) % n] = 1.0
+    A[i, (i - 1) % n] = 1.0
+    return A
+
+
+def _harmonic_basis(n, m):
+    """Orthonormal {cos, sin} pair for the m-th Fourier harmonic on C_n."""
+    i = np.arange(n)
+    c = np.cos(2 * np.pi * m * i / n)
+    s = np.sin(2 * np.pi * m * i / n)
+    return np.column_stack([c / np.linalg.norm(c), s / np.linalg.norm(s)])
+
+
+class TestCycleGraphFiedlerOracle:
+    """§5b.3 MM23 — the Laplacian of the ring graph C_n is circulant, so its
+    eigenvectors are the Fourier modes `cos(2π m i/n)`, `sin(2π m i/n)` with
+    eigenvalues `2 − 2cos(2π m/n)`. The Fiedler eigenvalue (m=1) is **doubly
+    degenerate**, so the Fiedler vector is determined only up to sign *and*
+    phase — it is any unit vector in the first-harmonic plane span{cos, sin}.
+    The precise, phase-robust oracle is therefore a *subspace* claim, not
+    "the answer is cos": the recovered eigenvector(s) must lie in that plane,
+    and at the first harmonic rather than a higher one.
+    """
+
+    def test_fiedler_pair_spans_first_harmonic(self):
+        n = 60
+        A = _cycle_affinity(n)
+        V = np.atleast_2d(_fiedler_from_affinity(A, n_components=2))
+        if V.shape[0] != n:  # normalise to (n, 2)
+            V = V.T
+        H1 = _harmonic_basis(n, 1)
+        P1 = H1 @ H1.T  # projector onto the first-harmonic plane
+        for col in V.T:
+            captured = np.linalg.norm(P1 @ col) / (np.linalg.norm(col) + 1e-12)
+            assert captured > 0.999, (
+                f"recovered Fiedler vector leaves {1 - captured:.2e} of its norm "
+                "outside the first-harmonic plane — not a pure C_n Fiedler mode."
+            )
+
+    def test_fiedler_is_first_harmonic_not_higher(self):
+        n = 60
+        A = _cycle_affinity(n)
+        v = np.asarray(_fiedler_from_affinity(A, n_components=1)).squeeze()
+        v = v / (np.linalg.norm(v) + 1e-12)
+        P1 = _harmonic_basis(n, 1) @ _harmonic_basis(n, 1).T
+        P2 = _harmonic_basis(n, 2) @ _harmonic_basis(n, 2).T
+        # Almost all energy in the first harmonic, almost none in the second.
+        assert np.linalg.norm(P1 @ v) > 0.999
+        assert np.linalg.norm(P2 @ v) < 0.05

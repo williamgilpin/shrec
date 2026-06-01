@@ -93,3 +93,71 @@ class TestTimeReversalApproximateSymmetry:
         forward = forward[::-1] / (np.linalg.norm(forward) + 1e-12)
         reverse = reverse / (np.linalg.norm(reverse) + 1e-12)
         assert abs(float(np.dot(forward, reverse))) > 0.7
+
+
+# --- §5b.2 MM15 — full-pipeline scale (per-channel affine) invariance -------
+
+class TestFullPipelineScaleInvariance:
+    """`standardize=True` (the default) z-scores each response, so the whole
+    pipeline is invariant to an arbitrary *per-channel* affine transform
+    `x_k → a_k x_k + b_k` (a_k > 0). This lifts the affinity-level scale
+    oracle MM2 to the full `fit_predict`: MM2 (affinity unchanged under a
+    global scale) + standardisation (removes per-channel scale and offset)
+    = full invariance. A regression here means standardisation was bypassed
+    or applied across the wrong axis.
+    """
+
+    def test_clustering_invariant_to_per_channel_affine(self):
+        X = _square_wave_responses(T=400, n_responses=8)
+        rng = np.random.default_rng(7)
+        a = rng.uniform(0.1, 10.0, size=X.shape[1])
+        b = rng.uniform(-5.0, 5.0, size=X.shape[1])
+        X_affine = X * a + b
+
+        labels_a = RecurrenceClustering(random_state=1).fit(X).labels_
+        labels_b = RecurrenceClustering(random_state=1).fit(X_affine).labels_
+        assert adjusted_rand_score(labels_a, labels_b) == pytest.approx(1.0, abs=1e-9)
+
+    def test_manifold_invariant_to_per_channel_affine(self):
+        X = _square_wave_responses(T=300, n_responses=8)
+        rng = np.random.default_rng(7)
+        a = rng.uniform(0.1, 10.0, size=X.shape[1])
+        b = rng.uniform(-5.0, 5.0, size=X.shape[1])
+        X_affine = X * a + b
+
+        va = RecurrenceManifold(random_state=1).fit(X).labels_
+        vb = RecurrenceManifold(random_state=1).fit(X_affine).labels_
+        va = va / (np.linalg.norm(va) + 1e-12)
+        vb = vb / (np.linalg.norm(vb) + 1e-12)
+        assert abs(float(np.dot(va, vb))) > 0.999
+
+
+# --- §5b.2 MM16 — idempotence under response duplication --------------------
+
+class TestResponseDuplicationIdempotence:
+    """Consensus aggregation is a *mean* over responses, so duplicating the
+    whole ensemble cannot change the consensus graph: with k copies the mean is
+    `(k·ΣA)/(k·N) = (ΣA)/N`, identical to one copy. Therefore `fit(X)` and
+    `fit([X, X])` give the same driver. Pins that the consensus step weights
+    responses uniformly and renormalises by the response count (rather than
+    accumulating raw mass). Stated on the *ensemble* rather than a single
+    repeated channel because `standardize_ts` squeezes an (T, 1) input to 1-D.
+    """
+
+    def test_clustering_idempotent_under_duplication(self):
+        X = _square_wave_responses(T=400, n_responses=4)
+        X_dup = np.concatenate([X, X], axis=1)  # two copies of the ensemble
+
+        labels_one = RecurrenceClustering(random_state=1).fit(X).labels_
+        labels_dup = RecurrenceClustering(random_state=1).fit(X_dup).labels_
+        assert adjusted_rand_score(labels_one, labels_dup) == pytest.approx(1.0, abs=1e-9)
+
+    def test_manifold_idempotent_under_duplication(self):
+        X = _square_wave_responses(T=300, n_responses=4)
+        X_dup = np.concatenate([X, X], axis=1)
+
+        v_one = RecurrenceManifold(random_state=1).fit(X).labels_
+        v_dup = RecurrenceManifold(random_state=1).fit(X_dup).labels_
+        v_one = v_one / (np.linalg.norm(v_one) + 1e-12)
+        v_dup = v_dup / (np.linalg.norm(v_dup) + 1e-12)
+        assert abs(float(np.dot(v_one, v_dup))) > 0.999

@@ -568,3 +568,457 @@ choice can recover what the graph doesn't encode.
   the real cause, and will fire if a future representation change actually fixes
   it. Encoding "why this is hard" as a passing test is as valuable as testing
   "this works."
+
+---
+
+# Round 7 — closing the closed-form inner math: MM7, MM8, MM9, MM11 (2026-06-01)
+
+First batch of the post-PR follow-up. These four are the "boring" oracles — the
+distance primitive, the sparsifier, the union-find — but they're the foundation
+the headline algorithm stands on, and writing them surfaced a genuine subtlety
+in the σ-solver's *tolerance semantics* (see the steep-root note below).
+
+## MM7 — recurrence is invariant to where you stand, not just how far you zoom
+
+The scale-invariance oracle MM2 says: multiply every distance by α and the
+affinity is unchanged. MM7 is its rigid-motion sibling: **rotate, reflect, and
+translate the whole point cloud and the affinity is unchanged.** Together they
+say recurrence depends only on the *intrinsic shape* of the trajectory in delay
+space — not on the coordinate frame, the origin, or the units.
+
+The decision worth recording: the catalog originally specced MM7 as "`cdist`
+isometry invariance," i.e. test that `scipy`'s distance function is an isometry.
+But re-testing a library function you trust is near-zero-value. I *lifted* the
+test up a level: assert the invariance of `dataset_to_simplex` itself — the real
+ρ/σ pipeline. That actually exercises our code (the σ root-solve, the
+symmetrisation) and would catch a frame-dependent bug we could plausibly
+introduce; the raw-`cdist` check is kept only as a one-line "here's the geometric
+fact it rests on" companion.
+
+- **📚 LEARNING TOPIC — "The two invariances of a metric method: similarity vs
+  congruence."** MM2 (scaling) + MM7 (rigid motion) together are exactly the
+  group of *similarity transformations*. A method invariant to both is blind to
+  the choice of ruler and the choice of frame — it sees only angles and distance
+  *ratios*. Worth a short page connecting this to why standardisation
+  (z-scoring each response) is the *only* extra normalisation SHREC needs: it
+  removes the per-response scale, and rigid-motion invariance is already free.
+- **📚 LEARNING TOPIC — "Test the code, not the library."** A reusable rule for
+  oracle design: if an invariant is a property of a dependency you trust, push
+  the test up until it exercises *your* transformation of that dependency's
+  output. The same oracle then doubles as a regression guard for your pipeline.
+
+## MM8 — why "is it a metric?" is a load-bearing question, not pedantry
+
+MM8 pins the triangle inequality (plus zero-diagonal, symmetry, non-negativity)
+on the Euclidean `cdist`. Trivially true for Euclidean — so why bother? Because
+the *next* stage assumes it. `fit_rho_sigma` sets ρ = the nearest-neighbour
+distance and treats `ReLU(d − ρ)` as a non-negative "excess distance" decaying
+under a positive bandwidth σ. That story only makes sense if d is a genuine
+metric: ρ must be the *minimum* (zero self-distance, non-negativity), and the
+local-connectivity argument leans on distances composing sanely. The test is a
+**contract pin**: it documents the assumption so that if someone later swaps in
+a non-metric (cosine *dissimilarity*, a learned embedding distance, DTW — which
+famously violates the triangle inequality) the breakage is caught at the
+primitive, not three stages downstream as a mysterious accuracy drop.
+
+- **📚 LEARNING TOPIC — "Which 'distances' are not metrics, and where that
+  bites."** DTW, KL divergence, cosine distance, squared-Euclidean — each breaks
+  a different metric axiom, and each breaks a different downstream assumption
+  (k-NN graphs, ρ/σ bandwidths, embedding via MDS). A table of "axiom violated →
+  algorithm that silently misbehaves" is a genuinely useful reference page, and
+  `kernel.py` already exposes a `metric=` hook (only `"euclidean"` wired) that's
+  the exact place this matters.
+
+## MM9 — the sparsifier rounds *up*, and that's what makes it idempotent
+
+`sparsify` thresholds |a| at the `sparsity`-quantile and binarises. Two
+properties, both with a one-line "why":
+
+1. **Achieved ≥ requested.** It uses `np.percentile(..., interpolation="higher")`
+   and zeros everything `≤ thresh`. The "higher" rule rounds the threshold *up*
+   to an actual data value, so on ties the realised zero-fraction never
+   *undershoots* the target — the docstring's "at least the requested sparsity"
+   is a direct consequence of that one kwarg.
+2. **Idempotence.** Re-sparsifying the binary output at the same target is a
+   no-op. Why: the first pass leaves a {0,1} matrix whose zero-fraction f ≥ s;
+   the second pass's s-quantile then lands *inside* the zero block, so the
+   threshold is 0, and "zero everything ≤ 0" fixes the zeros while leaving the
+   ones. A fixed point. (The knife-edge f = s exactly, where "higher" would jump
+   the threshold to 1 and wipe everything, is avoided precisely because pass one
+   over-zeros — f > s strictly on continuous data.)
+
+- **📚 LEARNING TOPIC — "Quantile interpolation conventions are not cosmetic."**
+  `higher`/`lower`/`nearest`/`linear` change which side of a tie you land on, and
+  here that choice is the difference between idempotent and not, and between
+  "≥ target" and "≈ target." A small page on how the percentile convention
+  propagates into a downstream invariant. (Tangent caught in passing: the source
+  still uses the deprecated `interpolation=` kwarg, renamed to `method=` in numpy
+  1.22 — noted, not touched, per the minimal-change policy.)
+
+## MM11 — proving the legacy gets to retire
+
+`graph/unionfind.py` is a hand-rolled disjoint-set predating
+`scipy.cluster.hierarchy.DisjointSet`; its own docstring says it could be swapped
+for scipy "once an equivalence test (MM11) lands." MM11 is that test: random
+merge sequences must yield an *identical connected-components partition* under
+both, and `solve_union_find` must return each group's full transitive closure
+(cross-checked against scipy's `.subset`). The interesting bit is the framing —
+the test isn't "does union-find work," it's "are these two implementations
+*substitutable*." That's a **characterisation / differential test against a
+trusted reference**, and it's what licenses a future refactor to delete code.
+
+- **📚 LEARNING TOPIC — "Union-find as the canonical near-linear algorithm."**
+  Path compression + union by rank gives the inverse-Ackermann α(n) amortised
+  bound — the textbook example of an algorithm that's *effectively* O(1) per op
+  but provably not. The hand-rolled version here uses *path splitting* (a
+  one-pass variant of compression); worth a page on the family (compression /
+  halving / splitting) and why they're all α(n). Connects to where SHREC uses it:
+  merging recurrence-equivalent timepoints in the classical (Sauer) baseline.
+- **📚 LEARNING TOPIC — "Differential testing to license deletion."** The general
+  pattern: to retire bespoke code, don't just test it in isolation — pin it
+  *equal to* the replacement on random inputs. Green test ⇒ the swap is
+  behaviour-preserving. Pairs with the MM12 vectorised-vs-loop parity test
+  (same idea, applied to `common_neighbors_ratio`).
+
+## The real find: brentq controls the *root*, not the *residual*
+
+Adding MM7/8/9/11 was meant to be routine, but rerunning the suite, the existing
+Hypothesis property test (`test_sigma_solve_satisfies_equation_or_takes_fallback`)
+fell over on a fresh adversarial input: a row with two neighbours separated by
+ε ≈ 2×10⁻⁹. Diagnosis, because it's a clean lesson in numerical analysis:
+
+- The σ-defining equation `f(σ) = Σ_m exp(−ReLU(d_m − ρ)/σ) − log₂k` is solved by
+  `brentq`, which guarantees the **root location** to a tolerance: `|σ − σ*| < xtol`.
+- A near-tie forces a *tiny* root, σ ~ ε. There, `f` is extremely steep:
+  `f'(σ) ~ (ε/σ²)·e^{−ε/σ} ~ 1/σ`.
+- The **function residual** at the returned root is `|f(σ)| ≈ f'(σ*)·|σ − σ*| ~
+  xtol/σ ~ xtol/ε`. As the tie tightens (ε → 0), the residual *grows* even though
+  the root is found perfectly. With `xtol = 1e-12` and ε ~ 2e-9 the residual was
+  ~1.6e-6 — just over the test's optimistic 1e-6 bound.
+
+So the test was making a subtly wrong claim: it conflated "root located
+accurately" with "residual small." Those differ by the local slope. The fix
+*names the regime* rather than loosening a magic number: accept a small residual,
+**or** the exact tied fallback (σ = ρ), **or** a genuine steep root (σ ≪
+neighbourhood scale). Crucially that third branch is **scale-invariant** (σ and
+the scale both scale with the data, per MM2), so it can't be scaled away — and it
+stays disjoint from the failure mode the test exists to catch: the old `fsolve`
+stall parked σ at ρ (σ/scale ~ O(1)) with residual ≈ 2.8.
+
+- **📚 LEARNING TOPIC — "Root tolerance vs residual tolerance."** The single most
+  transferable nugget in this round. A bracketing solver promises `|x − x*|`
+  small; it says *nothing* directly about `|f(x)|`, which is `≈ |f'(x*)|·|x − x*|`.
+  For steep functions the two diverge by orders of magnitude. The remedies —
+  tighten `xtol`, solve a rescaled/“flattened” equation, or assert on the root
+  not the residual — are a core piece of practical numerics, and this repo has a
+  live example. (Mirror image of the MM1 lesson, where `fsolve`'s *step-size*
+  convergence test stalled with a tiny residual *claim* but a huge actual
+  residual. Same theme from both ends: know exactly what your solver's
+  convergence criterion measures.)
+- **📚 LEARNING TOPIC — "Hypothesis as an adversary that never sleeps."** This
+  edge wasn't in any hand-written oracle; property-based search *manufactured* a
+  pathological near-tie. Lesson: a green property test isn't "proven correct," it's
+  "not-yet-falsified," and rerunning it is cheap insurance that occasionally pays
+  out a real refinement — here, a more precise statement of what the solver
+  guarantees. Worth contrasting with example-based tests (which only ever check
+  what you thought of) on the pedagogy page.
+
+---
+
+# Round 8 — closing the pipeline invariances: MM15, MM16, MM17 (2026-06-01)
+
+Second follow-up batch, and it closes §5b.2 entirely. Where §5b.1 probes single
+operators, §5b.2 asserts properties of the *whole* `fit_predict` that follow from
+symmetry arguments, not from algorithm internals. These are the tests that say
+"the method respects the structure of the problem" — and each one corresponds to
+a real degree of freedom in the data that *should not* matter.
+
+## MM15 — standardisation buys you the full similarity group
+
+MM2 proved the affinity is invariant to a *global* rescale of all distances.
+MM15 is the pipeline-level upgrade: scale and shift *each response independently*
+(`x_k → a_k x_k + b_k`) and the recovered driver is unchanged. The mechanism is
+the default `standardize=True`: a per-column z-score (`StandardScaler` +
+`standardize_ts`) strips each channel's scale `a_k` and offset `b_k` *before*
+embedding. So the invariance is the composition: standardisation kills the
+per-channel affine, then MM2's scale-invariance handles whatever global scale is
+left. The test deliberately uses *different* `a_k` per channel — a single global
+factor would be a weaker claim already covered by MM2.
+
+- **📚 LEARNING TOPIC — "Invariance by preprocessing vs invariance by
+  construction."** Two ways a method can ignore a nuisance transform: the
+  *operator* is intrinsically blind to it (MM2/MM7 — geometry), or a
+  *preprocessing step* removes it first (MM15 — standardisation). The distinction
+  matters because the second kind is only as trustworthy as the preprocessing:
+  turn `standardize` off and MM15 should *fail*, while MM7 holds regardless. A
+  good page would show the same invariance test passing/failing as you toggle the
+  responsible flag — it makes "where does this invariance come from?" concrete.
+- **📚 LEARNING TOPIC — "Why driver reconstruction must be affine-blind."** The
+  physical story: each response measures the hidden driver through its own
+  unknown gain and offset (sensor calibration). A method that wasn't affine-blind
+  would conflate "two sensors with different gains" with "two different drivers."
+  This is the measurement-model justification for standardisation, and ties back
+  to the linear-measurement oracle MM25 still on the deferred list.
+
+## MM16 — "more of the same data" is not more information
+
+Consensus aggregation is a plain mean over responses. So stacking k identical
+copies of the ensemble changes nothing: `(k·ΣAᵢ)/(k·N) = (ΣAᵢ)/N`. The test
+pins `fit([X, X]) == fit(X)`. It reads trivial, but it's a sharp guard on one
+specific bug: if the consensus step ever *summed* affinities without dividing by
+the response count (or divided by a fixed constant), duplication would change the
+graph's edge weights and could shift the spectral split or the Leiden resolution.
+Idempotence-under-duplication is the cleanest statement that aggregation is a
+genuine *average*, not an accumulation.
+
+Implementation footnote worth keeping: I first tried the textbook form — one
+response vs N copies of that *single* response — and hit a real quirk:
+`standardize_ts` squeezes an `(T, 1)` array to 1-D, which `_make_embedding` then
+rejects. Rather than "fix" a research-code path that N=1 was never meant to take,
+the property is stated on the *ensemble* (duplicate all columns). Same math,
+avoids the degenerate shape. (Lesson: when a test trips over a genuine edge in
+the code, first ask whether the *property* can be stated without entering that
+edge — often the cleaner statement is also the more general one.)
+
+- **📚 LEARNING TOPIC — "Mean vs sum: the renormalisation that makes consensus
+  scale-free in N."** Because aggregation is a mean, the consensus graph's edge
+  weights live in [0,1] regardless of how many responses you have — which is what
+  lets the *same* Leiden resolution / Fiedler threshold work from N=2 to N=200.
+  An accumulating sum would make every tunable implicitly N-dependent. Connects
+  directly to the MM27 accuracy-scaling story (adding responses sharpens the
+  consensus, but doesn't rescale it).
+
+## MM17 — refuse the degenerate input, loudly
+
+A constant response has an all-zero distance matrix, so the kernel's
+`surprise = dmat / np.std(dmat)` is `0/0`. `data_to_connectivity` guards this:
+it detects channels equal to their own first timepoint, warns, and drops them.
+MM17 pins both halves — (a) the warning fires, (b) the result is *exactly* the
+result of the surviving channels — plus the negative: no warning when every
+channel varies. Testing the *negative* is the part people skip; without it, a bug
+that warns spuriously on good data would pass unnoticed.
+
+- **📚 LEARNING TOPIC — "Defensive guards deserve two-sided tests."** Any
+  `if degenerate: warn-and-skip` branch has two failure modes: missing a real
+  degenerate (false negative) and firing on healthy input (false positive). A
+  guard test that only feeds the bad case checks one. The `warnings.simplefilter
+  ("error")` trick — promote any warning to an exception on the clean input — is
+  the cheap way to pin the other side.
+- **📚 LEARNING TOPIC — "0/0 in similarity kernels and where else it hides."**
+  The constant-series NaN is one instance of a general hazard: any normalisation
+  by a spread (std, range, max-distance) blows up on a degenerate input
+  (constant, single-point, all-tied). The fuzzy-simplicial σ-solve had its own
+  version (the fully-tied neighbourhood fallback in Round 1). A page cataloguing
+  "normalise-by-spread" sites across the pipeline and how each handles the
+  zero-spread limit would be a strong robustness reference — and three of the MM
+  tests (MM6 underflow mask, the σ tied-fallback, MM17) are already worked
+  examples of it.
+
+## Where the catalog stands after two batches
+
+§5b.1 and §5b.2 are closed (27 green, 2 documented xfail, 7 deferred). What's
+left is all in §5b.3/§5b.4: the *driver-recovery* oracles (does the method
+actually reconstruct a known `z(t)`? — MM24 identity, MM25 linear, MM26 monotone,
+MM21 stochastic-forcing, MM23 cycle-graph Fiedler) and two slow paper-claim
+regressions (MM28 percolation, MM29 HN baseline). Those are a qualitatively
+different kind of test — end-to-end "does the science work," not "is the operator
+well-behaved" — so they're the natural next theme to write up.
+
+---
+
+# Round 9 — driver recovery and the science oracles: MM23, MM24-26, MM21 (2026-06-01)
+
+Third follow-up batch. This is where the catalog stops asking "is the operator
+correct?" and starts asking "does the method *recover the hidden driver*?" — the
+actual scientific claim of the paper. Four of these landed clean; the fifth
+(MM21) landed as a measured *negative* that's arguably the most informative of
+the lot.
+
+## MM23 — a degenerate eigenspace, and why "Fiedler = cos" is wrong-by-a-phase
+
+The cycle graph C_n has a *circulant* Laplacian, so its eigenvectors are the
+Fourier modes and its eigenvalues are `λ_m = 2 − 2cos(2π m/n)`. The catalog
+specced MM23 as "Fiedler is `cos(2π i/n)` up to sign." Writing it forced the
+correction: `λ_1 = λ_{n−1}` are **equal** — the Fiedler eigenvalue is *doubly
+degenerate*. Its eigenspace is the 2-D plane span{`cos(2π i/n)`, `sin(2π i/n)`},
+and `eigh` is free to return *any* orthonormal basis of that plane. So the
+Fiedler vector is fixed only up to **sign and phase**, not sign alone — asserting
+`|cos(pred, cosine-mode)| ≈ 1` would be flaky, failing whenever the solver
+happened to return something nearer the sine mode.
+
+The fix is to assert the *subspace*, not the vector: project the recovered
+eigenvector onto the first-harmonic plane and demand it keeps >99.9% of its norm
+(and <5% leaks into the *second* harmonic, proving it's the lowest mode, not an
+overtone). This is the right shape of claim whenever an eigenvalue is degenerate.
+
+- **📚 LEARNING TOPIC — "Degenerate eigenspaces: test the subspace, not the
+  vector."** Whenever a symmetry forces repeated eigenvalues (cyclic → Fourier
+  pairs, spherical → spherical harmonics, any graph automorphism group), the
+  individual eigenvectors are basis-arbitrary and only the eigen*space* is
+  well-defined. The robust numerical test is a projector / principal-angle check.
+  A genuinely reusable lesson — the single most common cause of "my eigenvector
+  test is flaky" is testing a vector inside a degenerate space.
+- **📚 LEARNING TOPIC — "Circulant matrices diagonalise in the Fourier basis."**
+  Ring graphs, convolution operators, periodic boundary conditions — all
+  circulant, all share the DFT eigenbasis with eigenvalues = DFT of the first
+  row. A short derivation (why `λ_m = 2 − 2cos(2π m/n)` for C_n, and why the
+  small-m modes are the smooth/low-frequency ones the Fiedler vector picks) ties
+  spectral graph theory to signal processing in one picture.
+
+## MM24-26 — measurement-function invariance, and the phase-vs-value trap
+
+The three recovery oracles share one idea: SHREC should reconstruct the driver
+`z(t)` up to a **monotone transform**, no matter how each sensor distorts it —
+identity (MM24), affine (MM25), or saturating `tanh` (MM26). Spearman |ρ| is the
+right yardstick precisely because it is itself monotone-invariant: it measures
+"same ordering," which is exactly the indeterminacy the method carries. All three
+recover the driver at |ρ| ≈ 0.997 — essentially perfectly — because monotone
+observations of one driver have delay-embeddings that are all reparametrisations
+of the same curve, so the consensus recurrence collapses to a single 1-D
+coordinate tracking the driver's value.
+
+The non-obvious part — and a genuine design decision — is the **driver had to be
+aperiodic**. My first instinct was a sine driver (like MM27 uses). But a periodic
+driver revisits every value twice per cycle, so the recurrence manifold recovers
+*phase* (a bijection with time within a cycle), not *value* — and Spearman-vs-
+value would be misleadingly low even though recovery "worked." MM27 gets away
+with a sine because its responses are *chaotic logistic maps* whose recurrence is
+governed by the forcing *value* at each step, so co-recurrence means equal `z`
+regardless of phase. Here the responses are *direct* observations, so a smooth
+*aperiodic* driver (Gaussian-smoothed noise) is needed to make value and
+manifold-coordinate monotone-related.
+
+- **📚 LEARNING TOPIC — "Phase vs value: what a 1-D manifold of a time series
+  actually recovers."** The crux of delay-embedding intuition. For a periodic
+  signal the recurrence manifold parametrises the *limit cycle* (phase); for a
+  driver-forced ensemble it can parametrise the *forcing value*. Which one you get
+  depends on whether co-recurrence is dominated by phase-coincidence or value-
+  coincidence — and that depends on the measurement model. This single
+  distinction explains why MM24-26 need an aperiodic driver while MM27 doesn't,
+  and it's probably the deepest single idea in this whole notes file. Worth a
+  figure: same driver, periodic vs aperiodic, manifold-coordinate vs z.
+- **📚 LEARNING TOPIC — "Spearman as the natural metric for an up-to-monotone
+  reconstruction."** Why correlation choice encodes your invariance: Pearson
+  demands linearity, Spearman demands only monotonicity, mutual information
+  demands only dependence. SHREC's output is defined up to a monotone transform,
+  so Spearman is not a convenience — it's the metric that matches the method's
+  own ambiguity. Pairs with the MM14 cosine-vs-Pearson discussion (choosing the
+  metric to match the invariance).
+
+## MM21 — the catalog was optimistic, and measuring it is the result
+
+The catalog wanted period-8 at ARI > 0.85. It doesn't happen: measured ARI ≈
+0.64 (discrete) and |ρ| ≈ 0.44 (continuous). This is the *same* representational
+limit MM20 found for period-4, and it gets *worse* as the number of driver levels
+grows — exactly what the "binary recurrence can't separate adjacent levels"
+story (Round 6) predicts. So MM21, like MM20's companion, lands as a
+**characterisation of a limitation**, not a green checkmark on a capability:
+pin recovery into a partial-collapse band (`0.25 < ARI < 0.85`, `|ρ| < 0.85`) —
+below target so the limit is real, above chance so structure is partially there —
+and let it fire if a future representation ever breaks past 0.85.
+
+- **📚 LEARNING TOPIC — "When the spec is wrong, the measurement is the
+  deliverable."** The catalog's 0.85 was a guess; the honest move isn't to tune
+  until something passes, it's to *measure* and pin the truth — even when the
+  truth is "this doesn't reach the target, and here's the band it actually lives
+  in." Two MM ids (MM20, MM21) now encode the same representational limit at two
+  resolutions, which is far more informative than two optimistic green ticks would
+  have been. (Contrast with the MM27 lesson: there the law held and we asserted
+  its content; here the claim failed and we asserted *that*, precisely.)
+- **📚 LEARNING TOPIC — "Resolution scaling of an information bottleneck."** MM19
+  (2 levels, ARI≈0.99) → MM20 (4 levels, ARI≈0.50) → MM21 (8 levels, ARI≈0.64
+  discrete / 0.44 continuous). The trend (not the individual numbers) is the
+  physics: how many distinguishable driver states the consensus recurrence graph
+  can encode before adjacent levels merge. A plot of recovery vs level-count would
+  make the bottleneck quantitative and is the natural sequel to the Round 6
+  binary-recurrence discussion.
+
+## Catalog status after three batches
+
+27 → **32 green**, 2 xfail, **2 deferred**. Sections §5b.1, §5b.2, §5b.3 are all
+closed. The only open work is §5b.4's two slow paper-claim regressions: MM28
+(percolation order parameter `T_LCC/T` vs N, Appendix E.3) and MM29 (Hirata-Nomura
+Isomap baseline sanity).
+
+---
+
+# Round 10 — the baseline and a percolation dead-end worth recording (2026-06-01)
+
+Fourth batch, the §5b.4 paper-claim regressions. One landed; one is deliberately
+*not* forced — and the reason it isn't is the lesson.
+
+## MM29 — pin the contract at the boundary, even when an inner test exists
+
+`HirataNomuraIsomap` is the comparison baseline. Its consensus similarity feeds
+`Isomap(metric='precomputed')`, which silently *requires* a symmetric,
+zero-diagonal, non-negative dissimilarity. MM12 already proves
+`common_neighbors_ratio` has those properties element-wise — so is MM29
+redundant? No: MM12 tests the *function*; MM29 tests the *property at the place
+Isomap depends on it*. If a future change routed a different matrix into Isomap,
+or post-processed `common_neighbors_ratio`, MM12 would still pass while the
+baseline silently fed Isomap a non-metric. Pinning the contract at the consumer
+boundary is a distinct guard from pinning the producer.
+
+- **📚 LEARNING TOPIC — "Producer tests vs consumer-contract tests."** The same
+  property (here: valid dissimilarity) deserves a test where it's *produced* and
+  another where it's *consumed*, because refactors break the link between them.
+  A small but real principle for layered pipelines.
+
+## MM28 — when a faithful reproduction needs the *right* construction, not a passing number
+
+The percolation claim (Appendix E.3): as you add responses, the consensus
+recurrence graph fragments, so the largest-connected-component fraction `T_LCC/T`
+falls monotonically with N. Easy to state; I could not make it hold on the
+*simplicial consensus mean* with a fixed-quantile threshold, and the failure is
+instructive:
+
+- At a median threshold, `T_LCC/T` went `[1.0, 1.0, 1.0, 0.5]` for one seed
+  (a clean percolation transition into the two period-2 basins) — but another
+  seed stayed at `1.0` throughout, and a third *rose*. Right at criticality the
+  order parameter is wildly seed-dependent.
+- Worse, seed-averaging didn't rescue monotonicity: at large N the mean `T_LCC/T`
+  went back *up*. The reason is structural — `data_to_connectivity2` is a *mean*
+  over channels, so as N grows the weight distribution **concentrates** (more
+  channels averaged → smoother, more uniform weights), and a threshold defined
+  *relative* to that distribution (a quantile) re-admits edges and the graph
+  *re-percolates*. The order parameter is measuring the threshold's drift, not
+  the physics.
+
+The honest conclusion: a faithful Appendix-E.3 reproduction almost certainly
+uses the **binary Sauer recurrence graph** (`ClassicalRecurrenceClustering` /
+`kernel.py`, the `inf_k d^(k)` co-occurrence graph) at an **absolute** distance
+threshold — where "add a response" means "intersect one more recurrence
+constraint," which can only *remove* edges, giving a genuinely monotone
+fragmentation. So MM28 stays deferred with that finding recorded, rather than
+shipped with a quantile hand-tuned until one configuration happened to drop 0.3.
+
+- **📚 LEARNING TOPIC — "Relative vs absolute thresholds under a shifting
+  distribution."** A quantile threshold tracks the data distribution; an absolute
+  threshold is fixed. When the distribution itself moves with the independent
+  variable (here, N), a relative threshold confounds the effect you're trying to
+  measure. The percolation order parameter only means what the paper intends if
+  "more data" can only *remove* edges — which an intersection of binary
+  constraints guarantees and a renormalising mean does not. A genuinely subtle
+  measurement-design point, and the cleanest example of it in the whole project.
+- **📚 LEARNING TOPIC — "Monotone-by-construction vs monotone-by-luck."** The
+  binary-intersection recurrence graph is monotone in N *by construction* (edges
+  only disappear); the simplicial-mean graph is not. Recognising which quantities
+  are monotone for structural reasons — versus which merely trend that way on
+  average — is what separates a robust regression test from a flaky one. This is
+  why MM28 is worth doing *right* rather than *now*.
+- **Process lesson (mirrors Round 6's MM20):** a clean *negative* — "this
+  construction can't show the claimed effect, and here's the mechanism" — is a
+  real deliverable. It saves the next person the same dead-end and points them at
+  the construction that will work. Recording it in the catalog (status
+  "calibration blocked," with the mechanism) is more honest than either a forced
+  green or a bare "deferred."
+
+## Catalog status after four batches
+
+**33 green, 2 xfail, 1 deferred.** §5b.1/§5b.2/§5b.3 fully closed; §5b.4 has MM27
++ MM29 green and only MM28 open (calibration-blocked, mechanism recorded above).
+From the session's starting point (the math-correctness suite as inherited), the
+post-PR follow-up added MM7-9, MM11, MM15-17, MM21, MM23-26, MM29 and refined the
+σ-solver property test — every deferred "must" and non-must oracle is now either
+green, a documented xfail, or a deferred-with-mechanism. The pedagogy file has
+ten rounds of `📚 LEARNING TOPIC` seeds ready for the Quarto explainer.

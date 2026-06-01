@@ -31,12 +31,12 @@ with inputs whose answers can be written down.
 | **MM4 (must)** | ✅ | `dataset_to_simplex` symmetrisation: `A + Aᵀ − A∘Aᵀ ∈ [0,1]^(N×N)` and symmetric. |
 | **MM5 (must)** | ⚠️ xfail | `dataset_to_simplex(X, k=M)` vs `umap.umap_.fuzzy_simplicial_set` agreement to `atol=1e-5`. Known divergence on σ-solver conventions; the refactor chose `dataset_to_simplex`. See `tests/test_recurrence_simplicial.py`. |
 | **MM6 (must)** | ✅ | `recurrence/kernel.py:data_to_connectivity` p-norm limits: the ensemble aggregation is a power-mean `(mean_i a_i**ord)**(1/ord)` of per-channel kernels — `ord=1` → arithmetic mean; `ord→∞` → elementwise max = min-over-channels (Sauer `inf_k`). L∞ limit verified on well-conditioned entries (small affinities underflow at high ord). See `tests/test_recurrence_kernel.py`. |
-| MM7 | ⏳ | `cdist` isometry invariance under random orthogonal `Q` + translation. |
-| MM8 | ⏳ | `cdist` triangle inequality on random triples. |
-| MM9 | ⏳ | `sparsify_by_quantile` produces ≥ target sparsity; idempotent at the same threshold. |
+| MM7 | ✅ | Recurrence **rigid-motion invariance** — lifted from raw `cdist` to the affinity level: `dataset_to_simplex(X·Q + b) = dataset_to_simplex(X)` for orthogonal `Q` (rotations + reflections) and translation `b`, to `atol=1e-6`. Exercises the real ρ/σ pipeline (complements the scale-invariance oracle MM2); a companion check pins the underlying `cdist` isometry to `atol=1e-10`. See `tests/test_recurrence_distance.py`. |
+| MM8 | ✅ | Metric contract of the distance primitive: triangle inequality `d(i,k) ≤ d(i,j) + d(j,k)` over all triples, plus zero/symmetry/non-negativity. The ρ-as-nearest-neighbour / σ-bandwidth logic assumes a true metric. See `tests/test_recurrence_distance.py`. |
+| MM9 | ✅ | `utils/metrics.py:sparsify` (the catalog's `sparsify_by_quantile`): achieved zero-fraction ≥ requested `sparsity` (the `interpolation="higher"` quantile rounds the threshold up so ties never undershoot), idempotent at the same target (binary output is a fixed point), binary-valued when unweighted, monotone in the target. See `tests/test_metrics.py`. |
 | **MM35** | ✅ | `recurrence/kernel.py:distance_to_connectivity` bracket robustness — the fixed bracket `[1e-16, dscale]` assumed a sign change that fails when the requested sparsity is below the `1/N` diagonal floor (raised `ValueError` for small N). Now guards the infeasible case (warn + sharpest kernel) and expands the upper bracket; same fix discipline as `fit_rho_sigma`. See `tests/test_recurrence_kernel.py`. |
 | **MM10 (must)** | ✅ | `graph/communities.py:_leiden` — backend agreement on the barbell graph (ARI=1 across backends). graspologic leg always runs; igraph/leidenalg/cdlib gated by `importorskip`. Also locks the igraph `resolution`-forwarding fix (the branch had hardcoded `resolution_parameter=1.0`). See `tests/test_graph_communities.py`. |
-| MM11 | ⏳ | `graph/unionfind.py` parity with `scipy.cluster.hierarchy.DisjointSet`. |
+| MM11 | ✅ | `graph/unionfind.py` parity with `scipy.cluster.hierarchy.DisjointSet`: identical connected-components partition over random merge sequences, and `solve_union_find` returns each group's full transitive closure (cross-checked against scipy `.subset`). Clears the swap-in-scipy-behind-an-adapter path the module's docstring flags. See `tests/test_graph_unionfind.py`. |
 | MM12 | ✅ | `utils/graph_tools.common_neighbors_ratio` — vectorised matches loop on random binary matrices to `atol=0`; K_n with self-loops returns zero. See `tests/test_graph_adjacency.py`. |
 
 ---
@@ -51,9 +51,9 @@ order; etc.).
 |------|--------|----------|
 | **MM13 (must)** | ✅ | Response-permutation invariance: `model.fit(X[:, perm])` gives the same labels (ARI=1) as `model.fit(X)`. See `tests/test_models_invariances.py`. |
 | **MM14 (must)** | ✅ approximate | Time-reversal symmetry as **approximate** (ARI > 0.85 for clustering, `|cos| > 0.7` for manifold). The doc's exact-equality claim does not hold once delay embedding enters: forward embedded points carry past lags, reversed points carry "future" lags, so the per-point coordinates aren't byte-equal. For stationary processes the statistics agree → cluster structure survives. |
-| MM15 | ⏳ | Scale invariance of the full pipeline w.r.t. each response (standardisation is on by default; MM2 + standardisation = full invariance). |
-| MM16 | ⏳ | Idempotence on a single repeated response. |
-| MM17 | ⏳ | Constant-response rejection (filter at `recurrence/kernel.py:data_to_connectivity`). |
+| MM15 | ✅ | Full-pipeline invariance to a **per-channel affine** map `x_k → a_k x_k + b_k` (`a_k>0`): `standardize=True` (default) z-scores each response, so MM2 (affinity scale-invariance) + standardisation = full `fit_predict` invariance. ARI=1 (clustering), `|cos|>0.999` (manifold). See `tests/test_models_invariances.py`. |
+| MM16 | ✅ | **Duplication idempotence**: consensus is a mean over responses, so `fit([X, X]) = fit(X)` (mean over k copies renormalises to one). Stated on the ensemble, not a single channel, because `standardize_ts` squeezes an `(T,1)` input to 1-D. See `tests/test_models_invariances.py`. |
+| MM17 | ✅ | **Constant-response rejection**: `recurrence/kernel.py:data_to_connectivity` detects channels equal to their first timepoint (degenerate `surprise=0/0`), warns, and drops them — output equals the surviving non-constant channels exactly; no warning when all channels vary. See `tests/test_recurrence_kernel.py`. |
 | MM18 | ✅ (as MM31) | Determinism w.r.t. `random_state` — and crucially, *no* global RNG mutation. See `tests/test_models_base.py::TestRngIsolation`. |
 
 ---
@@ -66,14 +66,14 @@ Inputs constructed so the answer is provably the one we want.
 |------|--------|------------------|
 | **MM19 (must)** | ✅ near-exact | Sauer limit, period-2 driver: N=20 logistic responses, zero noise, T=1000 → `RecurrenceClustering().fit(X)` gives ARI > 0.95 (≈ 0.99). Exact ARI=1 is the asymptotic claim; the residual ~1% is Leiden boundary over-segmentation. See `tests/test_models_recurrence_clustering.py`. |
 | **MM20 (must)** | ⚠️ xfail | Sauer limit, period-4 driver → ARI ≈ 0.50. **Diagnosed as representational, not a Leiden artifact** (companion characterisation test `test_period_four_is_not_separable_in_graph`): a modularity-resolution sweep jumps 2 communities (res≤1) → ~1000 singletons (res≥2) with no stable 4-community regime; oracle spectral k-means=4 on the consensus Laplacian also gives ARI≈0.5 across N∈[20,100], coupling∈[0.5,1]; continuous RecurrenceManifold gives Spearman |ρ|≈0.38. The four levels collapse into a low/high 2-way split — closing MM20 needs a richer recurrence representation, not a clustering tweak. |
-| MM21 | ⏳ | Period-8 driver with stochastic forcing (`σ_noise = 0.04`): ARI > 0.85. |
+| MM21 | ✅ characterisation (slow) | Period-8 stochastically-forced driver. The catalog's ARI > 0.85 target is **not met** (measured ARI ≈ 0.64, continuous |ρ| ≈ 0.44): the same representational limit as MM20, *worse* with more driver levels. Pinned as a partial-collapse band (`0.25 < ARI < 0.85`, `|ρ| < 0.85`) — clearly below target (limit is real) yet above chance (structure partially present). Fires if a future representation lifts recovery past 0.85. See `tests/test_models_recurrence_clustering.py`. |
 | **MM22 (must)** | ✅ | Block-stochastic affinity: hand-construct `A = block_diag(J_p1, J_p2)` (unequal sizes) with a small bridge, assert RecurrenceManifold output `|cos|` > 0.99 against the analytical Fiedler vector. Distinguishes Fiedler from second SVD vector on irregular graphs. See `tests/test_models_recurrence_manifold.py`. |
 | **MM33 (must)** | ✅ | `RecurrenceManifold` connectivity guard: a (nearly) disconnected consensus graph has `λ₂ ≈ 0`, so the Fiedler eigenvector degenerates into a component indicator. `fit` must warn (and the well-connected MM22 case must not). Scale-free threshold `λ₂ ≤ 1e-10·Σdegree`. See `tests/test_models_recurrence_manifold.py`. |
 | MM34 | ✅ | `RecurrenceManifold(normalize_laplacian=True)` — opt-in NCut / random-walk normalisation (generalised `L v = λ D v`), the paper's "preconditioning" remedy for response bias. Must still recover a clean block split and must measurably differ (`|cos| < 0.95`) from the unnormalised default under degree heterogeneity. See `tests/test_models_recurrence_manifold.py`. |
-| MM23 | ⏳ | Cycle-graph affinity: Fiedler is `cos(2π i/n)` up to sign. |
-| MM24 | ⏳ | Identity-driver: `N = 1, x(t) = z(t)` (Rössler `z₁` trajectory) — Spearman `|ρ| > 0.95`. |
-| MM25 | ⏳ | Linear measurement: `x_k(t) = a_k z(t) + b_k` — `|ρ| > 0.9` after standardisation. |
-| MM26 | ⏳ | Nonlinear monotone measurement: `x_k(t) = tanh(z(t)/σ_k)` — `|ρ| > 0.8`. |
+| MM23 | ✅ | Cycle-graph `C_n` affinity: the Fiedler eigenvalue is **doubly degenerate**, so the Fiedler vector is fixed only up to sign *and* phase — it's any unit vector in the first-harmonic plane span{`cos(2π i/n)`, `sin(2π i/n)`}. Oracle is the precise subspace claim: recovered eigenvector(s) lie in that plane (>0.999 of norm) at the first harmonic, not a higher one (<0.05 in the 2nd). See `tests/test_models_recurrence_manifold.py`. |
+| MM24 | ✅ | Identity measurement `x_k = z` (smooth aperiodic driver, light noise) — Spearman `|ρ| > 0.95` (measured ≈ 0.997). Uses N>1 noisy copies, not the literal N=1 (which `standardize_ts` squeezes to 1-D, cf. MM16). See `tests/test_driver_recovery.py`. |
+| MM25 | ✅ | Linear measurement `x_k = a_k z + b_k` — `|ρ| > 0.9` (standardisation removes the per-sensor gain/offset). See `tests/test_driver_recovery.py`. |
+| MM26 | ✅ | Monotone nonlinear measurement `x_k = tanh(z/σ_k)` — `|ρ| > 0.8`; recovery up to a monotone transform, which Spearman is invariant to. See `tests/test_driver_recovery.py`. |
 
 ---
 
@@ -84,8 +84,8 @@ Slower; intended for `-m slow` / nightly CI.
 | Test | Status | Claim |
 |------|--------|-------|
 | **MM27 (must)** | ✅ (slow) | β-accuracy scaling (Appendix E.2): `Acc(NT/τ) = Acc_max (1 − exp(−β √(NT/τ)))`. Fit to a Spearman-accuracy-vs-N sweep on a lightly-noised (σ=0.05) continuous-driver logistic ensemble via `RecurrenceManifold` (the continuous path sidesteps the MM20 discrete-ARI collapse and is smooth to fit). Asserts β>0, Acc_max∈[0.6,1], clear small-N→large-N gain, and that the form beats a flat baseline (R²>0.5). See `tests/test_scaling_laws.py`. |
-| MM28 | ⏳ | Percolation order parameter (Appendix E.3): `T_LCC/T` monotone non-increasing in N with a > 0.3 drop. |
-| MM29 | ⏳ | HN-Isomap baseline: `common_neighbors_ratio` is symmetric, zero-diagonal, non-negative. |
+| MM28 | ⏳ (calibration blocked) | Percolation order parameter (Appendix E.3): `T_LCC/T` monotone non-increasing in N with a > 0.3 drop. **Investigated 2026-06-01, not closed**: a fixed-quantile threshold on the *simplicial consensus mean* is non-monotone — as N grows the mean affinity concentrates (averaging more channels smooths the weight distribution), so the median-threshold graph *re-percolates* (LCC/T rises back to 1.0 at N=32). Near criticality it's also strongly seed-dependent (seed shatters to 0.5, seed stays at 1.0). Faithful Appendix-E.3 reproduction almost certainly needs the **binary Sauer recurrence graph at an absolute distance threshold** (`ClassicalRecurrenceClustering`/`kernel.py`), not the smooth `data_to_connectivity2` mean — read E.3 for the exact construction before implementing. |
+| MM29 | ✅ | HN-Isomap baseline: the consensus similarity `HirataNomuraIsomap` feeds Isomap (`metric='precomputed'`) is a valid dissimilarity — symmetric, zero-diagonal, non-negative, ≤1 — and `fit` yields a finite `(T, n_components)` embedding. (Element-wise `common_neighbors_ratio` correctness is MM12.) See `tests/test_models_hirata_nomura.py`. |
 
 ---
 
@@ -106,17 +106,23 @@ Cheap mechanical pinning.
 
 | Section | Total | Green | xfail | Deferred |
 |---------|-------|-------|-------|----------|
-| §5b.1 inner math      | 13 | 8 | 1 | 4  |
-| §5b.2 invariances     | 6  | 3 | 0 | 3  |
-| §5b.3 limiting cases  | 10 | 4 | 1 | 5  |
-| §5b.4 scaling laws    | 3  | 1 | 0 | 2  |
+| §5b.1 inner math      | 13 | 12 | 1 | 0  |
+| §5b.2 invariances     | 6  | 6 | 0 | 0  |
+| §5b.3 limiting cases  | 10 | 9 | 1 | 0  |
+| §5b.4 scaling laws    | 3  | 2 | 0 | 1  |
 | §5b.5 sklearn contract| 4  | 4 | 0 | 0  |
-| **total**             | 36 | 20 | 2 | 14 |
+| **total**             | 36 | 33 | 2 | 1  |
 
 MM1, MM3 and MM4 also have **Hypothesis property-based** generalisations
 (`TestSimplexInvariantsPropertyBased`) that assert the invariants over
 machine-generated clouds and independently rediscover the tied-neighbourhood
-σ-degeneracy.
+σ-degeneracy. Hypothesis additionally surfaced a *near*-tied regime (neighbours
+separated by ε ≪ scale → root σ ~ ε, with `f'(σ) ~ 1/σ`): `brentq` locates the
+root to `xtol` but the function residual there is `~f'·xtol ~ 1/ε`, so a correct
+solve can exceed a naïve `1e-6` residual bound. The property test now accepts
+that scale-invariant steep-root branch (`σ ≪ neighbourhood scale`) — distinct
+from the fsolve stall (`σ = ρ`, residual ≈ 2.8) it still catches. See Round 7 of
+`docs/math-learning-notes.md`.
 
 The "must" tests (MM1–MM6, MM10, MM13–MM14, MM19–MM22, MM27, MM33) are
 the minimum to call the algorithm green. Of the 14 must-tests, **12 are
@@ -128,5 +134,15 @@ MM6 (kernel p-norm limits) and MM27 (accuracy scaling law) close the set.
 The only open must-items are the two documented xfails: MM5 (umap σ-solver
 convention) and MM20 (period-4 Leiden resolution collapse).
 
-The deferred items are the natural next batch of work whenever the
-math-correctness suite is revisited.
+Sections §5b.1 (inner math), §5b.2 (invariances), and §5b.3 (limiting cases)
+are now **fully closed** by the post-PR follow-up batches: batch 1 =
+MM7/MM8/MM9/MM11; batch 2 = MM15/MM16/MM17; batch 3 = MM23 (cycle-graph Fiedler)
++ MM24/MM25/MM26 (driver recovery under identity/linear/monotone measurement) +
+MM21 (period-8, landed as a representational-limit *characterisation* — the naive
+ARI>0.85 target is provably unreachable, same limit as MM20); batch 4 = MM29
+(HN-Isomap baseline sanity). Only **1 deferred item remains**: MM28 (percolation
+order parameter, Appendix E.3), which is *calibration-blocked* — a fixed-quantile
+threshold on the simplicial consensus mean re-percolates as N grows (the mean
+affinity concentrates), so a faithful reproduction needs the binary Sauer
+recurrence graph at an absolute threshold per Appendix E.3. The two open xfails
+(MM5 umap σ-convention, MM20 period-4) are documented, not regressions.

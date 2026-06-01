@@ -13,9 +13,11 @@ refactor is in place. At finite N=20 / T=1000, Leiden community detection
 at the default `resolution=1.0` slightly over-segments period-2 (ARI ≈
 0.99) and *collapses* period-4 to two communities (ARI ≈ 0.50). The
 period-2 case still clears a near-exact threshold; the period-4 case is
-marked xfail with a clear deferral note — closing it requires Leiden
-resolution tuning or a different objective, which belongs in the
-post-modularisation PR rather than here.
+marked xfail and diagnosed as a **representational** limit (NOT a Leiden-
+resolution artifact — an oracle spectral k-means=4 and the continuous
+manifold both fail too; see `test_period_four_is_not_separable_in_graph`).
+MM21 (period-8) confirms the limit *worsens* with more driver levels:
+recovery sits in a partial-collapse band well below the naive >0.85 target.
 """
 import numpy as np
 import pytest
@@ -128,4 +130,48 @@ class TestSauerLimitNearExactRecovery:
             f"Oracle spectral k-means=4 recovered period-4 with ARI={ari:.3f} "
             "(≥ 0.6): the consensus graph now separates the four levels, so the "
             "MM20 limitation may be representational no longer — revisit the xfail."
+        )
+
+
+class TestPeriodEightRepresentationalLimit:
+    """MM21 (§5b.3, characterisation) — the catalog optimistically targeted
+    ARI > 0.85 for a period-8 stochastically-forced driver, with the note
+    "use the continuous path if discrete collapses." Both collapse: this is
+    the SAME representational limit as MM20 (period-4), and it *worsens* with
+    more driver levels. We pin the partial-collapse band — clearly below the
+    >0.85 target (so the limit is real) but clearly above chance (so structure
+    is partially present, ruling out a pure bug). If a future recurrence
+    representation lifts either number past 0.85, this test fires and flags
+    that the period-8 limitation, like MM20, may be representational no longer.
+    """
+
+    @pytest.mark.slow
+    def test_period_eight_recovery_is_partial(self):
+        from scipy.stats import spearmanr
+
+        from shrec.models.models import RecurrenceManifold
+
+        T = 800
+        levels = np.linspace(0.1, 0.9, 8)
+        labels_true = np.arange(T) % 8
+        z = levels[labels_true]
+        rng = np.random.default_rng(0)
+        z_forced = z + 0.04 * rng.standard_normal(T)  # stochastic forcing
+        X = _logistic_ensemble(z_forced, n_responses=20, coupling=0.5, seed=0)
+
+        ari = adjusted_rand_score(
+            labels_true, RecurrenceClustering(random_state=1).fit(X).labels_
+        )
+        v = RecurrenceManifold(random_state=1).fit(X).labels_
+        rho = abs(spearmanr(v, z).correlation)
+
+        assert 0.25 < ari < 0.85, (
+            f"period-8 discrete ARI={ari:.3f} left the partial-collapse band "
+            "(0.25, 0.85); the representational limit may have changed — "
+            "revisit MM21/MM20."
+        )
+        assert rho < 0.85, (
+            f"period-8 continuous |ρ|={rho:.3f} ≥ 0.85: the manifold now "
+            "resolves 8 levels — the MM20/MM21 limit may be representational "
+            "no longer."
         )

@@ -123,3 +123,36 @@ class TestDistanceToConnectivityBracket:
         np.testing.assert_allclose(
             distance_to_connectivity(dmat, dscale=2.0), np.exp(-dmat / 2.0),
         )
+
+
+class TestConstantResponseRejection:
+    """MM17 (§5b.2) — `data_to_connectivity` drops constant channels with a
+    warning before building the kernel. A constant response carries no
+    recurrence information (its distance matrix is all zeros → degenerate
+    `surprise = 0/0`), so silently including it would inject NaNs / a uniform
+    block into the consensus. The filter must (a) warn and (b) produce exactly
+    the result of the surviving non-constant channels.
+    """
+
+    def _channels(self, seed=0):
+        rng = np.random.default_rng(seed)
+        good = rng.standard_normal((2, 25, 3))           # two informative channels
+        const = np.tile(rng.standard_normal((1, 1, 3)), (1, 25, 1))  # one flat channel
+        return good, const
+
+    def test_constant_channel_is_warned_and_dropped(self):
+        good, const = self._channels()
+        stacked = np.concatenate([good, const], axis=0)
+
+        with pytest.warns(UserWarning, match="Constant time series"):
+            out_with_const = data_to_connectivity(stacked)
+        out_good_only = data_to_connectivity(good)
+
+        np.testing.assert_allclose(out_with_const, out_good_only, atol=1e-12)
+        assert np.all(np.isfinite(out_with_const))
+
+    def test_no_warning_when_all_channels_vary(self):
+        good, _ = self._channels()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any warning becomes an error
+            data_to_connectivity(good)
