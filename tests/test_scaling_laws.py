@@ -18,9 +18,11 @@ docs/math-learning-notes.md (Round 5).
 import numpy as np
 import pytest
 from scipy.optimize import curve_fit
+from scipy.sparse.csgraph import connected_components
 from scipy.stats import spearmanr
 
-from shrec.models import RecurrenceManifold
+from shrec.models import RecurrenceClustering, RecurrenceManifold
+from shrec.recurrence import data_to_connectivity2
 
 T = 500
 TAU = 1
@@ -92,3 +94,88 @@ class TestAccuracyScalingLaw:
         )
         # Near-monotone in the means (allow small sampling dips).
         assert np.all(np.diff(mean_acc) > -0.05)
+
+
+# MM28 — percolation order parameter (Appendix E.3).
+PERC_T = 300
+PERC_N_SWEEP = [2, 4, 8, 16, 32]
+PERC_SEEDS = 10
+PERC_COUPLING = 0.1   # weak: single responses are individually ambiguous
+PERC_THETA = 0.55     # absolute edge threshold on the consensus affinity
+
+
+def _weakly_coupled_period2(n_responses, seed):
+    """Period-2 driver, weakly coupled into chaotic logistic responses. Weak
+    coupling is essential: each response *alone* gives a near-percolated
+    recurrence graph, so the consensus only resolves the two driver-state
+    basins once enough responses are averaged — which is the regime in which
+    the percolation transition is visible as N grows."""
+    rng = np.random.default_rng(seed)
+    z = np.where(np.arange(PERC_T) % 2 == 0, 0.2, 0.8)
+    r_values = rng.uniform(3.81, 3.97, size=n_responses)
+    X = np.empty((PERC_T, n_responses))
+    for k, r in enumerate(r_values):
+        x = np.empty(PERC_T)
+        x[0] = rng.uniform(0.1, 0.9)
+        for t in range(PERC_T - 1):
+            x[t + 1] = np.clip(r * x[t] * (1 - x[t]) + PERC_COUPLING * z[t], 0.0, 1.0)
+        X[:, k] = x
+    return X
+
+
+def _largest_cc_fraction(affinity, theta):
+    """T_LCC/T: fraction of nodes in the largest connected component of the
+    consensus graph binarised at an *absolute* edge threshold θ."""
+    adj = affinity > theta
+    np.fill_diagonal(adj, False)
+    _, labels = connected_components(adj.astype(int), directed=False)
+    return np.bincount(labels).max() / affinity.shape[0]
+
+
+@pytest.mark.slow
+class TestPercolationOrderParameter:
+    """MM28 (§5b.4, Appendix E.3) — the scaled largest connected component
+    `T_LCC/T ∈ [0,1]` of the aggregated consensus adjacency A is a percolation
+    order parameter: it falls toward driver-state fragmentation as the amount
+    of data grows ("percolation loss precedes accurate reconstruction", Fig 6).
+    We reproduce this in N (number of responses).
+
+    Two construction choices, both load-bearing and both lessons from the
+    investigation (see docs/math-learning-notes.md Round 10/12):
+      - **absolute** edge threshold, not a quantile: the consensus weight
+        distribution shifts with N, so a *relative* threshold re-percolates the
+        graph and the trend reverses.
+      - **weak coupling**: with strong coupling every response imprints the same
+        2-state structure, so the consensus is N-invariant and there is no
+        transition to see; the transition lives where single responses are
+        ambiguous and consensus does the work.
+    Near criticality the order parameter is seed-noisy (the paper averages 60
+    replicates), so we assert on the seed-averaged curve: a strong monotone-
+    decreasing trend (Spearman) and a clear net drop.
+    """
+
+    def test_lcc_fraction_decreases_with_ensemble_size(self):
+        mean_lcc = np.empty(len(PERC_N_SWEEP))
+        for i, n_resp in enumerate(PERC_N_SWEEP):
+            fracs = []
+            for seed in range(PERC_SEEDS):
+                X = _weakly_coupled_period2(n_resp, seed)
+                model = RecurrenceClustering(random_state=1)
+                embedded = model._make_embedding(model._preprocess(X))
+                A = data_to_connectivity2(embedded, time_exclude=0)
+                fracs.append(_largest_cc_fraction(A, PERC_THETA))
+            mean_lcc[i] = np.mean(fracs)
+
+        drop = mean_lcc[0] - mean_lcc[-1]
+        rho = spearmanr(PERC_N_SWEEP, mean_lcc).correlation
+
+        assert rho < -0.8, (
+            f"percolation order parameter is not monotone-decreasing in N "
+            f"(Spearman={rho:.2f}); LCC/T={np.round(mean_lcc, 3)}"
+        )
+        assert drop > 0.3, (
+            f"no clear percolation loss from N={PERC_N_SWEEP[0]} to "
+            f"N={PERC_N_SWEEP[-1]}: {mean_lcc[0]:.2f} → {mean_lcc[-1]:.2f}"
+        )
+        # No appreciable upward excursion (allow tiny criticality noise).
+        assert np.all(np.diff(mean_lcc) <= 0.05)

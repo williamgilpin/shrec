@@ -84,7 +84,7 @@ Slower; intended for `-m slow` / nightly CI.
 | Test | Status | Claim |
 |------|--------|-------|
 | **MM27 (must)** | ✅ (slow) | β-accuracy scaling (Appendix E.2): `Acc(NT/τ) = Acc_max (1 − exp(−β √(NT/τ)))`. Fit to a Spearman-accuracy-vs-N sweep on a lightly-noised (σ=0.05) continuous-driver logistic ensemble via `RecurrenceManifold` (the continuous path sidesteps the MM20 discrete-ARI collapse and is smooth to fit). Asserts β>0, Acc_max∈[0.6,1], clear small-N→large-N gain, and that the form beats a flat baseline (R²>0.5). See `tests/test_scaling_laws.py`. |
-| MM28 | ⏳ (calibration blocked) | Percolation order parameter (Appendix E.3): `T_LCC/T` monotone non-increasing in N with a > 0.3 drop. **Investigated 2026-06-01, not closed**: a fixed-quantile threshold on the *simplicial consensus mean* is non-monotone — as N grows the mean affinity concentrates (averaging more channels smooths the weight distribution), so the median-threshold graph *re-percolates* (LCC/T rises back to 1.0 at N=32). Near criticality it's also strongly seed-dependent (seed shatters to 0.5, seed stays at 1.0). Faithful Appendix-E.3 reproduction almost certainly needs the **binary Sauer recurrence graph at an absolute distance threshold** (`ClassicalRecurrenceClustering`/`kernel.py`), not the smooth `data_to_connectivity2` mean — read E.3 for the exact construction before implementing. |
+| MM28 | ✅ (slow) | Percolation order parameter (Appendix E.3): `T_LCC/T` (largest-connected-component fraction of the consensus graph A) is monotone non-increasing in N — "percolation loss precedes accurate reconstruction" (Fig 6). Reproduced on the **simplicial consensus** (the paper's A, not the Sauer graph) at an **absolute** edge threshold (a *quantile* threshold re-percolates as the weight distribution shifts with N) in the **weak-coupling** regime (κ=0.1, so single responses are individually ambiguous and consensus does the resolving — strong coupling is N-invariant). Seed-averaged (10) curve: 0.85 → 0.27, Spearman(N, LCC) = −1.0; asserts Spearman < −0.8 and drop > 0.3. See `tests/test_scaling_laws.py` and Round 12 of `docs/math-learning-notes.md`. |
 | MM29 | ✅ | HN-Isomap baseline: the consensus similarity `HirataNomuraIsomap` feeds Isomap (`metric='precomputed'`) is a valid dissimilarity — symmetric, zero-diagonal, non-negative, ≤1 — and `fit` yields a finite `(T, n_components)` embedding. (Element-wise `common_neighbors_ratio` correctness is MM12.) See `tests/test_models_hirata_nomura.py`. |
 
 ---
@@ -109,9 +109,9 @@ Cheap mechanical pinning.
 | §5b.1 inner math      | 13 | 13 | 0 | 0  |
 | §5b.2 invariances     | 6  | 6 | 0 | 0  |
 | §5b.3 limiting cases  | 10 | 9 | 1 | 0  |
-| §5b.4 scaling laws    | 3  | 2 | 0 | 1  |
+| §5b.4 scaling laws    | 3  | 3 | 0 | 0  |
 | §5b.5 sklearn contract| 4  | 4 | 0 | 0  |
-| **total**             | 36 | 34 | 1 | 1  |
+| **total**             | 36 | 35 | 1 | 0  |
 
 MM1, MM3 and MM4 also have **Hypothesis property-based** generalisations
 (`TestSimplexInvariantsPropertyBased`) that assert the invariants over
@@ -135,16 +135,15 @@ MM5 (umap parity) surfaced and fixed a real ρ off-by-one and now matches umap.
 The only open must-item is the documented xfail MM20 (period-4 representational
 collapse).
 
-Sections §5b.1 (inner math), §5b.2 (invariances), and §5b.3 (limiting cases)
-are now **fully closed** by the post-PR follow-up batches: batch 1 =
+**The catalog is now fully closed — 0 deferred items.** All sections green
+except the single documented MM20 xfail. The post-PR follow-up batches: batch 1 =
 MM7/MM8/MM9/MM11; batch 2 = MM15/MM16/MM17; batch 3 = MM23 (cycle-graph Fiedler)
 + MM24/MM25/MM26 (driver recovery under identity/linear/monotone measurement) +
 MM21 (period-8, landed as a representational-limit *characterisation* — the naive
 ARI>0.85 target is provably unreachable, same limit as MM20); batch 4 = MM29
-(HN-Isomap baseline sanity). Only **1 deferred item remains**: MM28 (percolation
-order parameter, Appendix E.3), which is *calibration-blocked* — a fixed-quantile
-threshold on the simplicial consensus mean re-percolates as N grows (the mean
-affinity concentrates), so a faithful reproduction needs the binary Sauer
-recurrence graph at an absolute threshold per Appendix E.3. The one open xfail
-(MM20 period-4 representational collapse) is documented, not a regression; MM5
-was closed by fixing the ρ off-by-one (see §5b.1).
+(HN-Isomap baseline sanity); the MM5 ρ off-by-one fix (see §5b.1); and finally
+MM28 (percolation order parameter, Appendix E.3) — reproduced on the simplicial
+consensus at an *absolute* threshold in the weak-coupling regime (the earlier
+calibration block was a quantile threshold re-percolating as the weight
+distribution shifts with N). The one open xfail (MM20 period-4 representational
+collapse) is documented, not a regression.

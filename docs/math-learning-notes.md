@@ -1130,3 +1130,95 @@ of `📚 LEARNING TOPIC` seeds now span the whole pipeline — from the σ-solve
 the metric primitive through invariances, driver recovery, scaling laws, and the
 two honest negatives (MM20/MM21 representational limit, MM28 percolation
 construction).
+
+---
+
+# Round 12 — MM28 percolation, and reading the spec carefully the second time (2026-06-02)
+
+MM28 was the last deferred item, parked in Round 10 as "calibration-blocked: a
+quantile threshold on the consensus mean re-percolates as N grows; needs the
+binary Sauer graph at an absolute threshold." Coming back to it, *two* of those
+guesses were wrong — and getting it right meant reading Appendix E.3 closely and
+reasoning about which aggregation actually fragments.
+
+## What the paper actually says (and what I'd assumed)
+
+Appendix E.3 ("3. Percolation calculation"): the order parameter T_LCC/T is
+computed on "**the aggregated time series adjacency matrix A** before finding the
+driver" — i.e. the *main method's* consensus (the simplicial `data_to_connectivity2`
+mean), **not** a separate Sauer graph. My Round-10 note had guessed the Sauer
+graph; the paper is explicit that it's the method's own A. Lesson: when a result
+won't reproduce, re-read the primary source before re-deriving — the construction
+was specified, I'd just half-remembered it.
+
+## The aggregation direction — which I had backwards
+
+I'd reasoned "the Sauer `inf_k d^(k)` is an intersection of recurrence
+constraints, so more responses → fewer edges → fragmentation." Wrong twice over.
+The `ord→∞` kernel aggregation is `(mean a_i^ord)^(1/ord) → max_i a_i` = the
+*max* affinity = the channel where two points are *closest* = a **union** of
+recurrences. Adding responses gives more chances for *some* channel to call a
+pair close, so the Sauer graph gets *denser* with N (LCC rises — I measured it
+going the wrong way). The **mean** consensus is the one that behaves like an
+intersection: an edge stays strong only where *many* responses agree, so spurious
+edges dilute and the graph fragments with N. So the paper using the mean isn't
+incidental — it's exactly the aggregation whose order parameter falls with N.
+
+- **📚 LEARNING TOPIC — "Union vs intersection aggregation, and which one
+  fragments."** `max`-over-channels (Sauer `inf_k` distance) is a union: monotone
+  *densifying* in N. `mean`-over-channels is a soft intersection: monotone
+  *diluting* in N. The percolation-loss story requires the diluting one. A clean
+  worked example of how an aggregation operator's set-theoretic character
+  determines its scaling behaviour — and a caution to *measure* the direction
+  rather than trust a quick "more constraints = sparser" intuition.
+
+## Absolute, not relative — confirmed, with the mechanism
+
+The Round-10 block was real: a *quantile* (relative) threshold tracks the
+consensus weight distribution, which shifts with N, so it re-admits edges and the
+LCC curve is non-monotone / reverses. An **absolute** threshold θ is fixed, so as
+spurious-pair mean affinity falls with N (averaging independent ~0 contributions)
+those edges drop below θ while true-recurrence pairs stay above — monotone
+fragmentation. With θ=0.55 the seed-averaged curve is a textbook order parameter:
+0.85 → 0.27, Spearman(N, LCC) = −1.0.
+
+## Weak coupling is the regime — the non-obvious requirement
+
+The subtlety that cost the most calibration: at *strong* coupling (κ=0.5) every
+response imprints the same clean 2-state structure, so the consensus is
+essentially N-invariant — there's no transition to see (LCC flat). The percolation
+transition only lives where single responses are **individually ambiguous** (weak
+coupling κ=0.1, or high noise), so that one response gives a near-percolated graph
+and only the *consensus over many* resolves the driver-state basins. That is
+precisely the paper's point — "this degeneracy below the percolation transition
+produces an underdetermined reconstruction, which becomes determined as the amount
+or quality of response datasets increases." The order parameter measures consensus
+doing work; if a single response already suffices, there's nothing to measure.
+
+- **📚 LEARNING TOPIC — "A transition is only visible where the system is poised
+  near it."** To observe a critical phenomenon vs a control parameter, the rest of
+  the setup has to sit *near criticality* across the swept range. Strong coupling
+  puts the system far on the resolved side for all N (flat); weak coupling places
+  the transition inside the N-window. Choosing the regime is half of designing the
+  experiment — the same lesson as MM27's signal-to-noise window, now for a
+  structural (percolation) order parameter rather than an accuracy one.
+- **📚 LEARNING TOPIC — "Robust assertions for a noisy critical quantity."** Near
+  criticality the order parameter is wildly seed-dependent (the paper averages 60
+  replicates; individual seeds jump between 0.33 and 1.0). The robust test asserts
+  on the *seed-averaged* curve and uses a **Spearman trend** (< −0.8) plus a net
+  **drop** (> 0.3) rather than strict per-step monotonicity — capturing "it falls"
+  without being hostage to a single noisy step. General recipe for testing any
+  finite-size critical phenomenon.
+
+## The arc, closed
+
+**35 green, 1 xfail (MM20), 0 deferred.** Every MM oracle in the catalog is now
+green or the one documented representational xfail. Across twelve rounds the notes
+trace the whole method — σ-solver and metric primitive (1, 7, 11), invariances
+(7, 8), spectral oracles (9), driver recovery and the phase-vs-value distinction
+(9), scaling and percolation laws (5, 10, 12), and the honest negatives where the
+method or the naive spec hits a real limit (6 MM20, 9 MM21, and MM28's two false
+starts here). The recurring meta-lesson, surfacing in Rounds 6, 9, 10, 11, and 12:
+**localise the claim to the right construction, triangulate the spec before you
+trust or "fix" it, and let the test track the truth — including when the truth is
+a limit, a convention, or a regime you had to find.**

@@ -39,17 +39,24 @@ proper Python package with the public API at the top level:
 from shrec import RecurrenceClustering, RecurrenceManifold
 ```
 
-Test suite (`uv run pytest`): **66 passed, 6 skipped (optional
-`igraph`/`leidenalg`/`cdlib` backends), 2 documented xfailed**. The
-math-correctness catalog (`docs/tests-math.md`) now has all 14 "must"
-tests green or documented-xfail.
+Test suite (`uv run pytest`): **153 passed, 6 skipped (optional
+`igraph`/`leidenalg`/`cdlib` backends), 1 documented xfailed** — this
+includes 3 `@slow` tests (MM21, MM27, MM28); `uv run pytest -m "not slow"`
+skips them (150 passed). The
+math-correctness catalog (`docs/tests-math.md`) is **fully closed**: all
+36 `MM<n>` oracles are green except the single documented MM20 xfail
+(35 green / 1 xfail / 0 deferred). The 2026-06 follow-up batches closed
+the deferred oracles (MM7–9, 11, 15–17, 21, 23–26, 28, 29) and fixed a
+real ρ off-by-one in `dataset_to_simplex` (MM5; see below).
 
-The two xfails are tracked in `docs/tests-math.md`:
+The one remaining xfail is tracked in `docs/tests-math.md`:
 
-- **MM5** — `dataset_to_simplex` vs `umap.umap_.fuzzy_simplicial_set`
-  diverge on σ-solver conventions. The refactor chose
-  `dataset_to_simplex` (paper-faithful, no umap dependency). Lifting
-  the xfail requires reconciling the conventions.
+- **MM5 (now green)** — `fit_rho_sigma` vs `umap.umap_.fuzzy_simplicial_set`.
+  Reconciled: the divergence was a real off-by-one (ρ was the *second*-
+  nearest neighbour because the self-distance was inf-filled *and* then
+  `[1:k+1]`-sliced; Appendix B / umap / the original author's comments all
+  say *nearest*). Fixed to `[:k]`. The sharper kernel lowered MM14's
+  *approximate* time-reversal ARI 0.85→0.65 (driver recovery unaffected).
 - **MM20** — period-4 Sauer-limit ARI ≈ 0.50. **This is a
   representational limit, not a Leiden-resolution artifact** (don't
   chase resolution tuning — it's been ruled out). A modularity sweep
