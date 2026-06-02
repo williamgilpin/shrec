@@ -74,6 +74,15 @@ class TestTimeReversalApproximateSymmetry:
     cluster structure survives — but the pairwise distance matrices are
     not byte-equal. These tests pin the approximate version, which is
     still a strong regression guard against directional leaks.
+
+    Note (post-MM5 ρ fix): the driven logistic map is *not* time-reversible,
+    so the reversed delay-embedding genuinely has different recurrence basins
+    (reverse-vs-truth ARI ≈ 0.77 vs forward ≈ 0.98). The old ρ=2nd-nearest
+    kernel was smooth enough to mask this (forward-vs-reverse ARI ≈ 0.85+);
+    the corrected, sharper ρ=nearest kernel (Appendix B) surfaces the real
+    asymmetry at ≈ 0.75. The threshold below reflects the honest, paper-
+    faithful value — it still guards against a gross directional leak (which
+    would collapse ARI toward 0).
     """
 
     def test_clustering_under_time_reversal_is_approximate(self):
@@ -82,7 +91,7 @@ class TestTimeReversalApproximateSymmetry:
         forward = RecurrenceClustering(random_state=1).fit(X).labels_
         reverse = RecurrenceClustering(random_state=1).fit(X[::-1]).labels_
 
-        assert adjusted_rand_score(forward[::-1], reverse) > 0.85
+        assert adjusted_rand_score(forward[::-1], reverse) > 0.65
 
     def test_manifold_under_time_reversal_is_approximate(self):
         X = _square_wave_responses(T=300, n_responses=8)

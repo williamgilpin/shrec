@@ -1022,3 +1022,111 @@ post-PR follow-up added MM7-9, MM11, MM15-17, MM21, MM23-26, MM29 and refined th
 σ-solver property test — every deferred "must" and non-must oracle is now either
 green, a documented xfail, or a deferred-with-mechanism. The pedagogy file has
 ten rounds of `📚 LEARNING TOPIC` seeds ready for the Quarto explainer.
+
+---
+
+# Round 11 — MM5, a parity test that found a real bug, and how to be *certain* (2026-06-02)
+
+MM5 was the last "must" xfail: "`dataset_to_simplex` diverges from umap on
+σ-solver conventions." The historical note hedged — "differs on conventions
+worth documenting." Investigating it turned the hedge into a precise, two-part
+answer, one half of which was a genuine **algorithm bug** that had survived from
+the original upstream code into the refactor.
+
+## The finding: ρ was the *second*-nearest neighbour, not the nearest
+
+Comparing umap's `smooth_knn_dist` outputs to our `fit_rho_sigma` row by row:
+ρ_ours equalled the **2nd**-nearest-neighbour distance; ρ_umap the **nearest**.
+The mechanism is a subtle interaction of two correct-looking lines:
+
+    dmat_zerofilled[dmat_zerofilled < 1e-10] = np.inf   # send self (and dups) to +inf
+    dists = np.sort(...)[:, 1:k+1]                       # "# drop self"
+
+Each line is individually sensible. Together they double-skip: the inf-fill
+*already* moved self to the end of the sorted row, so index 0 is the nearest
+*real* neighbour — and `[1:k+1]` then drops *that*, leaving ρ = 2nd-nearest. The
+fix is a one-character-class change: `[:, 1:k+1]` → `[:, :k]`.
+
+## The lesson worth the whole round: how to reach certainty before changing canonical code
+
+Changing a merged algorithm — especially research code that reproduces a
+published paper — deserves more than "umap disagrees, so we're wrong." A single
+source can itself be the typo. The discipline was to triangulate **four
+independent sources**, and only act once they were unanimous:
+
+1. **The paper, Appendix B (the primary spec).** Extracted from the PDF:
+   "the set of M smallest elements … the M nearest neighbors … ρᵢ ≡ minₘ{dᵢₘ}."
+   An explicit equation: ρ = the minimum = nearest. Not prose that could be a
+   loose paraphrase — a formula.
+2. **The cited reference implementation (umap).** `fuzzy_simplicial_set` with
+   `local_connectivity=1` gives ρ = nearest; verified numerically (ρ_umap = nn1).
+3. **The original author's own intent, recovered from git.** `git show` of the
+   pre-refactor `shrec/models.py` carried the author's comments verbatim:
+   `# drop self` on the slice and `# distance to the nearest neighbor` on ρ —
+   plus a *commented-out* earlier line, `np.sort(dmat)[:, 1:k+1]`, which is the
+   correct construction (raw dmat → self at index 0 → `[1:]` drops self). The bug
+   was introduced when they added the inf-fill and didn't re-examine the slice.
+4. **Internal consistency.** ρ=2nd-nearest matches *no* source — not the paper,
+   not umap, not the author's comments. A real convention would have *some*
+   provenance; an artifact has none.
+
+Only with all four aligned did the change earn the right to touch canonical code.
+
+- **📚 LEARNING TOPIC — "Triangulating a spec before you 'fix' it."** The general
+  method: never let one authority (a test, a library, a doc) unilaterally declare
+  another wrong. Gather the primary spec, the reference implementation, the
+  original author's intent (git archaeology — comments and commented-out code are
+  gold), and an internal-consistency argument. Act when they converge; escalate
+  when they don't. This is the single most transferable process lesson in the
+  whole file, and it's *why* the fix was safe to ship.
+- **📚 LEARNING TOPIC — "git as an intent oracle."** `git show <rev>:<path>` and
+  the pickaxe (`git log -S`) recover not just *what* the code did but what the
+  author *meant* — comments, commented-out alternatives, the order edits landed.
+  Here it converted "is this a convention or a bug?" into a definitive "bug: the
+  comment says nearest, the code does second-nearest." Worth a short page on
+  reading history as documentation.
+
+## The other half: a real convention difference (so document it, don't "fix" it)
+
+After the ρ fix, σ still differed by ~4%. That half was *not* a bug: umap's
+`n_neighbors = k` **counts the query point itself**, so it sums over k-1 real
+neighbours toward a target of log₂(k); the paper/our code sums over k real
+neighbours. Feed our solver the k-1 nearest and σ matches umap to ~1e-6. So MM5
+splits cleanly into "fix the bug (ρ)" + "document the convention (k-counts-self)"
+— and the test now asserts exactly that: ρ identical, σ identical under matched
+self-counting.
+
+- **📚 LEARNING TOPIC — "Off-by-one in 'k': does your neighbour count include the
+  point itself?"** A perennial source of silent disagreement between kNN
+  implementations (sklearn, umap, scipy all make different choices). Worth a table
+  of who-counts-self, because it shifts every downstream bandwidth by one
+  neighbour.
+
+## The downstream cost, surfaced honestly
+
+The sharper, paper-faithful kernel changed one thing measurably: the *approximate*
+time-reversal symmetry (MM14) dropped from ARI ≈ 0.85 to ≈ 0.75 — because the
+driven logistic map is genuinely **not time-reversible** (reverse-vs-truth ≈ 0.77
+vs forward ≈ 0.98), and the old smoother kernel had been *masking* that asymmetry.
+Driver recovery itself was unaffected (period-2 stays 0.98; MM19/24-27 pass). So
+the honest move was to lower MM14's threshold and document *why* — the more
+correct kernel reveals a real property the looser one hid. A fix that improves
+faithfulness can legitimately *lower* a sanity metric; the test should track the
+truth, not the comfortable old number.
+
+- **📚 LEARNING TOPIC — "When a correctness fix lowers a metric."** A more-correct
+  model can score *worse* on a metric that was benefiting from the old behaviour's
+  smoothing/leakage. Recognising this — rather than reverting the fix to keep the
+  green number — is a maturity marker. The tell: the capability metric (recovery)
+  is unchanged or better, only a proxy/sanity metric moves. Pairs with the
+  measurement-design lessons of Rounds 9–10.
+
+## Catalog status
+
+**34 green, 1 xfail (MM20), 1 deferred (MM28).** All 14 "must" tests are green
+except the documented MM20 representational xfail. This closes the inner-math
+section completely and retires the last solver-convention question. Eleven rounds
+of `📚 LEARNING TOPIC` seeds now span the whole pipeline — from the σ-solver and
+the metric primitive through invariances, driver recovery, scaling laws, and the
+two honest negatives (MM20/MM21 representational limit, MM28 percolation
+construction).

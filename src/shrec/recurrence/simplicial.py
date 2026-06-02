@@ -69,9 +69,15 @@ def dataset_to_simplex(X, k=20, tol=1e-12, precomputed=False):
 
     n = dmat.shape[0]
     dmat_zerofilled = dmat.copy()
+    # Send the self-distance (and any exact duplicates) to +inf so they sort to
+    # the end and are excluded from the neighbourhood. Index 0 of the sorted row
+    # is then the *nearest* distinct neighbour — so take [:k] (the k nearest),
+    # not [1:k+1]. Per Appendix B, ρ_i = closest-neighbour distance = dists[0];
+    # the old [1:k+1] slice double-skipped (inf already removed self) and set ρ
+    # to the *second*-nearest neighbour. See MM5 in docs/tests-math.md.
     dmat_zerofilled[dmat_zerofilled < 1e-10] = np.inf
-    dists = np.partition(dmat_zerofilled, k + 1, axis=1)
-    dists = np.sort(dists, axis=1)[:, 1:k + 1]
+    dists = np.partition(dmat_zerofilled, k, axis=1)
+    dists = np.sort(dists, axis=1)[:, :k]
     for i in range(n):
         rho_i, sigma_i = fit_rho_sigma(dists[i], k, tol=tol)
         dmat[i] = np.exp(-relu(dmat[i] - rho_i) / sigma_i)

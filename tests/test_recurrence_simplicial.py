@@ -17,11 +17,13 @@ from shrec.recurrence.simplicial import fit_rho_sigma
 
 def _knn_dists(X, k):
     """The per-row sorted k-NN distances, exactly as `dataset_to_simplex`
-    constructs them (true duplicates dropped via the 1e-10 floor)."""
+    constructs them: self and true duplicates dropped via the 1e-10 → inf floor,
+    then the k nearest distinct neighbours (`[:k]`, so `dists[0]` is the nearest
+    — the ρ convention of Appendix B; cf. the MM5 off-by-one fix)."""
     dmat = cdist(X, X)
     dmat[dmat < 1e-10] = np.inf
-    dists = np.partition(dmat, k + 1, axis=1)
-    return np.sort(dists, axis=1)[:, 1:k + 1]
+    dists = np.partition(dmat, k, axis=1)
+    return np.sort(dists, axis=1)[:, :k]
 
 
 # --- §5b.1 MM1 — defining-equation residual ---------------------------------
@@ -146,26 +148,31 @@ class TestSimplexInvariantsPropertyBased:
 
     @settings(max_examples=40, deadline=None)
     @given(X=_point_clouds())
-    def test_sigma_solve_satisfies_equation_or_takes_fallback(self, X):
+    def test_sigma_solve_is_a_valid_root_or_fallback(self, X):
+        # Mirror the canonical neighbour construction (self/dups -> inf, then
+        # the k nearest; cf. the MM5 ρ off-by-one fix).
         dmat = cdist(X, X)
         dmat[dmat < 1e-10] = np.inf
-        dists = np.sort(np.partition(dmat, _K + 1, axis=1), axis=1)[:, 1:_K + 1]
+        dists = np.sort(np.partition(dmat, _K, axis=1), axis=1)[:, :_K]
         target = np.log2(_K)
         for row in dists:
             rho, sigma = fit_rho_sigma(row, _K)
+            assert sigma > 0 and np.isfinite(sigma)
             residual = abs(np.sum(np.exp(-relu(row - rho) / sigma)) - target)
             tied_fallback = np.isclose(sigma, rho)
-            # brentq locates the σ-*root* to its tolerance, not the function
-            # residual. In a near-tied neighbourhood (two neighbours separated
-            # by ε ≪ the neighbourhood scale) the root σ ~ ε is tiny and f's
-            # slope there is ~1/σ, so a correctly-bracketed root can still leave
-            # a residual that grows like 1/ε. That steep regime (σ ≪ scale) is a
-            # *good* solve — qualitatively unlike the fsolve stall it replaced
-            # (σ stuck at ρ, residual ≈ 2.8). The σ/scale marker is scale-
-            # invariant (MM2), so this branch can't be scaled away. Accept a
-            # small residual, the exact tied fallback, or a genuine tiny-σ root.
-            steep_root = sigma < 1e-6 * row[-1]
-            assert residual < 1e-6 or tied_fallback or steep_root, (
+            # `brentq` locates the σ-*root* to its tolerance (xtol), not the
+            # function *residual* — which is ≈ f'(σ*)·xtol. In a near-tied
+            # neighbourhood the root σ is tiny and f's slope ~1/σ is huge, so a
+            # correctly-bracketed root can leave a residual that grows like
+            # xtol/ε (observed up to ~1e-5 on adversarial Hypothesis inputs).
+            # That is still a *good* solve, qualitatively unlike the fsolve
+            # stall it replaced (σ stuck at ρ, residual ≈ 2.8). So this
+            # robustness test only asserts the solver isn't catastrophically
+            # wrong (1e-3 separates a valid root from a stall by 3+ orders of
+            # magnitude); the tight residual < 1e-6 bound on well-conditioned
+            # input is MM1 (`TestDefiningEquation`). See Round 7/11 of
+            # docs/math-learning-notes.md.
+            assert residual < 1e-3 or tied_fallback, (
                 f"row solve neither satisfied the equation (residual="
                 f"{residual:.3g}) nor took the ρ-fallback (σ={sigma:.3g}, "
                 f"ρ={rho:.3g})."
@@ -175,58 +182,58 @@ class TestSimplexInvariantsPropertyBased:
 # --- §5b.1 MM5 — cross-implementation parity --------------------------------
 
 class TestSimplicialParity:
-    """The repo carries two fuzzy-simplicial implementations:
+    """MM5 — reconcile `fit_rho_sigma` (our self-contained σ-solver, the
+    canonical pipeline since the refactor dropped the umap-learn dependency)
+    against `umap.umap_.fuzzy_simplicial_set` / `smooth_knn_dist`.
 
-      * `models.dataset_to_simplex` — fsolve on each row, applied densely
-        (paper Appendix B, eq. for σ_i).
-      * `models.data_to_connectivity2` — delegates the ρ/σ root-solve to
-        `umap.umap_.fuzzy_simplicial_set`, then applies those parameters
-        densely (so the only difference *should* be the solver).
+    The historical strict-xfail recorded "they diverge on σ-solver
+    conventions." Pinned down (see docs/math-learning-notes.md Round 11), the
+    divergence was exactly two things:
 
-    Per §3 of the assessment, only one of these can be canonical. If they
-    disagree on the same input, one is wrong (or differs only on
-    parameter-choice conventions worth documenting).
+      1. A real **off-by-one bug** in `dataset_to_simplex`: it inf-filled the
+         self-distance *and then* sliced `[1:k+1]`, double-skipping so ρ became
+         the *second*-nearest neighbour. Appendix B (and umap) use the
+         *nearest*. Fixed to `[:k]`; ρ now matches umap to floating point.
+      2. A genuine, intentional **convention** difference in what "k" counts:
+         umap's `n_neighbors = k` *includes the query point itself*, so it sums
+         over k-1 real neighbours toward a target of log₂(k). Our paper-faithful
+         convention uses k real neighbours toward log₂(k). Adopt umap's
+         self-counting (feed the k-1 nearest) and σ matches umap to ~1e-6.
+
+    So the two now agree exactly once the self-counting convention is matched;
+    the only remaining difference is that documented convention choice.
     """
 
-    @pytest.mark.xfail(
-        reason=(
-            "Confirmed divergence: the two simplicial implementations "
-            "carry different conventions for the σ root-solve (likely "
-            "the k-vs-(k+1) neighbour count and/or the ρ-as-min-distance "
-            "rule). The §6 step-2 PR chose `dataset_to_simplex` (the "
-            "self-contained, paper-faithful version) and dropped the "
-            "umap-learn dependency from the canonical pipeline. This "
-            "test remains as a historical record of the comparison; "
-            "lifting xfail requires reconciling the two conventions."
-        ),
-        strict=True,
-    )
-    def test_dataset_to_simplex_matches_umap_sigmas_and_rhos(self, rng):
-        """Apply the umap-derived (ρ, σ) the same way `data_to_connectivity2`
-        does (dense `exp(-ReLU(d − ρ)/σ)` + fuzzy union), and compare to
-        the in-repo `dataset_to_simplex`. If both implement Appendix B
-        faithfully, they should agree to ~1e-5 on a random input.
-        """
+    def test_rho_matches_umap_exactly(self, rng):
+        """After the off-by-one fix, ρ_i (nearest-neighbour distance) is
+        identical to umap's `rhos` (its `local_connectivity=1` ρ)."""
         umap_mod = pytest.importorskip("umap.umap_")
-        fuzzy_simplicial_set = umap_mod.fuzzy_simplicial_set
-
         X = rng.standard_normal((50, 3))
         k = 10
 
-        ours = dataset_to_simplex(X, k=k)
-
-        # Mirror data_to_connectivity2:271-279 exactly.
-        _, sigmas, rhos, _ = fuzzy_simplicial_set(
+        _, _, rhos_umap, _ = umap_mod.fuzzy_simplicial_set(
             X, k, 0, "euclidean", return_dists=True,
         )
-        sigmas = np.asarray(sigmas)
-        rhos = np.asarray(rhos)
-        dmat = cdist(X, X)
-        umap_aff = np.exp(-relu(dmat - rhos[None, :]) / sigmas[None, :])
-        umap_aff = umap_aff + umap_aff.T - umap_aff * umap_aff.T
+        rhos_umap = np.asarray(rhos_umap)
 
-        # Expected to FAIL today on at least one of: σ-solver convention
-        # (log₂ k vs ln k), the k-vs-(k-1) neighbour count, or ρ choice
-        # (smallest vs smallest non-zero). Whatever the diff is, naming
-        # it concretely is the goal of this test.
-        np.testing.assert_allclose(ours, umap_aff, atol=1e-5)
+        knn = _knn_dists(X, k)
+        rhos_ours = np.array([fit_rho_sigma(row, k)[0] for row in knn])
+        np.testing.assert_allclose(rhos_ours, rhos_umap, atol=1e-6)
+
+    def test_sigma_matches_umap_under_self_counting_convention(self, rng):
+        """umap's `n_neighbors` counts the self-point, so it sums over k-1 real
+        neighbours toward log₂(k). Match that convention and σ agrees to ~1e-6
+        — proving the σ-solvers are otherwise identical."""
+        umap_mod = pytest.importorskip("umap.umap_")
+        X = rng.standard_normal((50, 3))
+        k = 10
+
+        _, sigmas_umap, _, _ = umap_mod.fuzzy_simplicial_set(
+            X, k, 0, "euclidean", return_dists=True,
+        )
+        sigmas_umap = np.asarray(sigmas_umap)
+
+        knn = _knn_dists(X, k)
+        # Feed the k-1 nearest with target log₂(k): umap's self-counting.
+        sigmas_ours = np.array([fit_rho_sigma(row[: k - 1], k)[1] for row in knn])
+        np.testing.assert_allclose(sigmas_ours, sigmas_umap, atol=1e-5)

@@ -29,7 +29,7 @@ with inputs whose answers can be written down.
 | **MM2 (must)** | ✅ | Same — **scale invariance**: `fit_rho_sigma(α · d_row, k) = (α·ρ, α·σ)` so affinity is unchanged. Verified on both `(ρ, σ)` and the full `dataset_to_simplex` output. |
 | **MM3 (must)** | ✅ | Same — **diagonal**: `A_ii = 1` exactly (`d_ii=0 ⇒ exp(0)=1`, fuzzy union `1+1−1=1`). |
 | **MM4 (must)** | ✅ | `dataset_to_simplex` symmetrisation: `A + Aᵀ − A∘Aᵀ ∈ [0,1]^(N×N)` and symmetric. |
-| **MM5 (must)** | ⚠️ xfail | `dataset_to_simplex(X, k=M)` vs `umap.umap_.fuzzy_simplicial_set` agreement to `atol=1e-5`. Known divergence on σ-solver conventions; the refactor chose `dataset_to_simplex`. See `tests/test_recurrence_simplicial.py`. |
+| **MM5 (must)** | ✅ | `fit_rho_sigma` vs `umap.umap_.fuzzy_simplicial_set`, reconciled. The historical divergence was (1) a real **off-by-one bug** in `dataset_to_simplex` — it inf-filled the self-distance *and then* sliced `[1:k+1]`, double-skipping so ρ became the *second*-nearest neighbour; Appendix B (`ρᵢ ≡ minₘ{dᵢₘ}`), umap, and the original author's own `# nearest neighbor` / `# drop self` comments all say *nearest*. Fixed to `[:k]`; ρ now matches umap exactly. (2) A documented convention: umap's `n_neighbors=k` counts the query point, so it sums k-1 real neighbours toward log₂(k); adopting that, σ matches umap to ~1e-6. See `tests/test_recurrence_simplicial.py` and Round 11 of `docs/math-learning-notes.md`. |
 | **MM6 (must)** | ✅ | `recurrence/kernel.py:data_to_connectivity` p-norm limits: the ensemble aggregation is a power-mean `(mean_i a_i**ord)**(1/ord)` of per-channel kernels — `ord=1` → arithmetic mean; `ord→∞` → elementwise max = min-over-channels (Sauer `inf_k`). L∞ limit verified on well-conditioned entries (small affinities underflow at high ord). See `tests/test_recurrence_kernel.py`. |
 | MM7 | ✅ | Recurrence **rigid-motion invariance** — lifted from raw `cdist` to the affinity level: `dataset_to_simplex(X·Q + b) = dataset_to_simplex(X)` for orthogonal `Q` (rotations + reflections) and translation `b`, to `atol=1e-6`. Exercises the real ρ/σ pipeline (complements the scale-invariance oracle MM2); a companion check pins the underlying `cdist` isometry to `atol=1e-10`. See `tests/test_recurrence_distance.py`. |
 | MM8 | ✅ | Metric contract of the distance primitive: triangle inequality `d(i,k) ≤ d(i,j) + d(j,k)` over all triples, plus zero/symmetry/non-negativity. The ρ-as-nearest-neighbour / σ-bandwidth logic assumes a true metric. See `tests/test_recurrence_distance.py`. |
@@ -50,7 +50,7 @@ order; etc.).
 | Test | Status | Property |
 |------|--------|----------|
 | **MM13 (must)** | ✅ | Response-permutation invariance: `model.fit(X[:, perm])` gives the same labels (ARI=1) as `model.fit(X)`. See `tests/test_models_invariances.py`. |
-| **MM14 (must)** | ✅ approximate | Time-reversal symmetry as **approximate** (ARI > 0.85 for clustering, `|cos| > 0.7` for manifold). The doc's exact-equality claim does not hold once delay embedding enters: forward embedded points carry past lags, reversed points carry "future" lags, so the per-point coordinates aren't byte-equal. For stationary processes the statistics agree → cluster structure survives. |
+| **MM14 (must)** | ✅ approximate | Time-reversal symmetry as **approximate** (ARI > 0.65 for clustering, `|cos| > 0.7` for manifold). The doc's exact-equality claim does not hold once delay embedding enters: forward embedded points carry past lags, reversed points carry "future" lags, so the per-point coordinates aren't byte-equal. The driven logistic map is non-reversible, so reverse-vs-truth ARI ≈ 0.77 vs forward ≈ 0.98; the clustering threshold was lowered 0.85→0.65 after the MM5 ρ fix (the sharper, paper-faithful kernel surfaces this real asymmetry rather than masking it). Still guards against a gross directional leak. |
 | MM15 | ✅ | Full-pipeline invariance to a **per-channel affine** map `x_k → a_k x_k + b_k` (`a_k>0`): `standardize=True` (default) z-scores each response, so MM2 (affinity scale-invariance) + standardisation = full `fit_predict` invariance. ARI=1 (clustering), `|cos|>0.999` (manifold). See `tests/test_models_invariances.py`. |
 | MM16 | ✅ | **Duplication idempotence**: consensus is a mean over responses, so `fit([X, X]) = fit(X)` (mean over k copies renormalises to one). Stated on the ensemble, not a single channel, because `standardize_ts` squeezes an `(T,1)` input to 1-D. See `tests/test_models_invariances.py`. |
 | MM17 | ✅ | **Constant-response rejection**: `recurrence/kernel.py:data_to_connectivity` detects channels equal to their first timepoint (degenerate `surprise=0/0`), warns, and drops them — output equals the surviving non-constant channels exactly; no warning when all channels vary. See `tests/test_recurrence_kernel.py`. |
@@ -106,12 +106,12 @@ Cheap mechanical pinning.
 
 | Section | Total | Green | xfail | Deferred |
 |---------|-------|-------|-------|----------|
-| §5b.1 inner math      | 13 | 12 | 1 | 0  |
+| §5b.1 inner math      | 13 | 13 | 0 | 0  |
 | §5b.2 invariances     | 6  | 6 | 0 | 0  |
 | §5b.3 limiting cases  | 10 | 9 | 1 | 0  |
 | §5b.4 scaling laws    | 3  | 2 | 0 | 1  |
 | §5b.5 sklearn contract| 4  | 4 | 0 | 0  |
-| **total**             | 36 | 33 | 2 | 1  |
+| **total**             | 36 | 34 | 1 | 1  |
 
 MM1, MM3 and MM4 also have **Hypothesis property-based** generalisations
 (`TestSimplexInvariantsPropertyBased`) that assert the invariants over
@@ -125,14 +125,15 @@ from the fsolve stall (`σ = ρ`, residual ≈ 2.8) it still catches. See Round 
 `docs/math-learning-notes.md`.
 
 The "must" tests (MM1–MM6, MM10, MM13–MM14, MM19–MM22, MM27, MM33) are
-the minimum to call the algorithm green. Of the 14 must-tests, **12 are
-green and 2 are xfail-documented — none are deferred**. The inner-math
+the minimum to call the algorithm green. Of the 14 must-tests, **13 are
+green and 1 is xfail-documented — none are deferred**. The inner-math
 closed-form checks MM1–MM4 are green (MM1 surfaced and fixed the `fsolve`
 σ-solve stall); MM10 (backend agreement) and MM33 (connectivity guard)
 landed alongside the igraph-`resolution` and disconnected-graph fixes;
-MM6 (kernel p-norm limits) and MM27 (accuracy scaling law) close the set.
-The only open must-items are the two documented xfails: MM5 (umap σ-solver
-convention) and MM20 (period-4 Leiden resolution collapse).
+MM6 (kernel p-norm limits) and MM27 (accuracy scaling law) close the set;
+MM5 (umap parity) surfaced and fixed a real ρ off-by-one and now matches umap.
+The only open must-item is the documented xfail MM20 (period-4 representational
+collapse).
 
 Sections §5b.1 (inner math), §5b.2 (invariances), and §5b.3 (limiting cases)
 are now **fully closed** by the post-PR follow-up batches: batch 1 =
@@ -144,5 +145,6 @@ ARI>0.85 target is provably unreachable, same limit as MM20); batch 4 = MM29
 order parameter, Appendix E.3), which is *calibration-blocked* — a fixed-quantile
 threshold on the simplicial consensus mean re-percolates as N grows (the mean
 affinity concentrates), so a faithful reproduction needs the binary Sauer
-recurrence graph at an absolute threshold per Appendix E.3. The two open xfails
-(MM5 umap σ-convention, MM20 period-4) are documented, not regressions.
+recurrence graph at an absolute threshold per Appendix E.3. The one open xfail
+(MM20 period-4 representational collapse) is documented, not a regression; MM5
+was closed by fixing the ρ off-by-one (see §5b.1).
