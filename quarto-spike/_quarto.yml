@@ -23,6 +23,20 @@ website:
             text: "Stage 3: Consensus"
           - href: stage-reconstruction.qmd
             text: "Stage 4: Reconstruction"
+      - text: Understanding the Math
+        menu:
+          - href: explainer.qmd
+            text: Overview
+          - href: explainer-kernel.qmd
+            text: "The adaptive kernel"
+          - href: explainer-spectral.qmd
+            text: "From graph to driver"
+          - href: explainer-consensus.qmd
+            text: "Pooling & percolation"
+          - href: explainer-limits.qmd
+            text: "What it can & can't recover"
+          - href: explainer-testing.qmd
+            text: "How we know it's right"
       - href: modules.qmd
         text: Modules
 

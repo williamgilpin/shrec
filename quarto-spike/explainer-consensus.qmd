@@ -1,0 +1,182 @@
+---
+title: "Pooling & percolation"
+jupyter: python3
+---
+
+A single response's recurrence graph is ambiguous: a recurrence in one response
+*implies* a driver recurrence (Sauer), but the converse fails, so any one
+response misses many driver recurrences and invents spurious ones. Stage 3 pools
+the $N$ per-response graphs into a consensus. This page explains why pooling is a
+*mean*, how the more general *power-mean* dial recovers the classical baseline,
+and why adding data drives a **percolation transition** that is the structural
+signature of successful reconstruction.
+
+## Consensus is a soft intersection
+
+The canonical aggregation is the plain mean of the per-response fuzzy graphs,
+
+$$A = \frac{1}{N} \sum_{k=1}^{N} A^{(k)} .$$
+
+Why the mean and not, say, a fuzzy `max`? Because the mean behaves like a **soft
+intersection**: an edge $(i,j)$ keeps a high consensus weight only if *many*
+responses agree it is a recurrence. Edges that only a few responses report — the
+spurious ones — get *diluted* as $N$ grows. A `max` (fuzzy OR) would do the
+opposite: one response calling a pair recurrent is enough to light the edge, so
+the graph would *densify* with $N$. That single distinction — intersection
+diluting vs union densifying — is what makes the consensus sharpen toward the
+true driver structure rather than smear it.
+
+The mean is also what makes the method **scale-free in $N$**: because it
+renormalises by the response count, consensus weights stay in $[0,1]$ no matter
+how many responses you pool, so the *same* downstream thresholds and resolutions
+work from $N=2$ to $N=200$. (An accumulating sum would make every tunable
+implicitly $N$-dependent.) A direct corollary, which doubles as a test: pooling
+$k$ identical copies of an ensemble cannot change the consensus —
+$\text{mean}(A,\dots,A) = A$.
+
+## The power-mean dial: min ↔ mean ↔ max
+
+The classical (Sauer) baseline uses a more general aggregation, the **power
+mean** of order $p$,
+
+$$M_p = \left(\frac{1}{N}\sum_k a_k^{\,p}\right)^{1/p},$$
+
+which interpolates a whole family: $M_{-\infty} = \min$, $M_1 =$ arithmetic mean,
+$M_{+\infty} = \max$. Since each per-channel affinity is
+$a_k = \exp(-\text{surprise}_k/\text{thresh})$, the max over channels is
+$\exp(-(\min_k \text{surprise}_k)/\text{thresh})$ — the *closest-channel*
+recurrence, which is exactly the Sauer $\inf_k d^{(k)}$ that
+`ClassicalRecurrenceClustering` approximates.
+
+```{python}
+#| fig-cap: "The power mean M_p of a fixed set of per-channel affinities interpolates monotonically from min (p→−∞) through the arithmetic mean (p=1) to max (p→+∞). SHREC's simplicial consensus is the mean (p=1); the classical Sauer baseline pushes p→∞ (max = closest channel)."
+import numpy as np
+import matplotlib.pyplot as plt
+
+a = np.array([0.15, 0.30, 0.55, 0.80, 0.95])     # 5 per-channel affinities
+p = np.linspace(-12, 12, 400)
+Mp = np.array([(np.mean(a ** pp)) ** (1.0 / pp) if abs(pp) > 1e-6
+               else np.exp(np.mean(np.log(a))) for pp in p])  # p→0 limit = geometric mean
+
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ax.plot(p, Mp, color="C0")
+for y, lab, c in [(a.min(), "min", "C1"), (a.mean(), "mean (p=1)", "C2"), (a.max(), "max", "C3")]:
+    ax.axhline(y, ls="--", lw=1, color=c, label=lab)
+ax.axvline(1, color="C2", lw=0.8)
+ax.set_xlabel("power p"); ax.set_ylabel("$M_p$")
+ax.set_title("Power mean interpolates min ↔ mean ↔ max")
+ax.legend(fontsize=8)
+fig.tight_layout()
+```
+
+::: {.callout-note}
+## Why `ord = 500` and not `∞`
+The classical path reaches for the `max` limit, but `a_k**ord` *underflows* to
+$0$ in float64 once $a_k \lesssim 0.25$ and `ord` is large. So the implementation
+uses a finite `ord = 500`: large enough that the power mean is within a hair of
+the max on the affinities that matter (the appreciably-recurrent ones), small
+enough to stay numerically alive. The $M_\infty$ limit is only meaningful where
+the closest channel is strongly recurrent — exactly the entries that survive
+underflow.
+:::
+
+## Percolation: the structural signature of reconstruction
+
+Here is the deep idea (paper Appendix E.3). Treat the consensus graph $A$ as a
+network and watch its **largest connected component**, scaled by the number of
+time points: the order parameter $T_\mathrm{LCC}/T \in [0, 1]$. When it is near
+$1$ the graph is one giant blob — *percolated* — and reconstruction is
+**underdetermined**: a densely connected graph has many equivalent paths between
+nodes, so there is no unambiguous assignment of recurrence events to driver
+states. As you add data (more responses $N$, stronger coupling, higher SNR), the
+soft-intersection consensus dilutes the spurious edges, the giant component
+*shatters* into driver-state basins, and $T_\mathrm{LCC}/T$ falls. **Percolation
+loss precedes accurate reconstruction.**
+
+```{python}
+#| fig-cap: "Percolation order parameter T_LCC/T of the consensus graph vs ensemble size N (weak coupling, period-2 driver, seed-averaged). It falls monotonically as the giant component shatters into the two driver-state basins — the structural transition that makes the driver recoverable. (Spearman ≈ −1.)"
+import warnings; warnings.filterwarnings("ignore")
+from scipy.sparse.csgraph import connected_components
+from shrec.recurrence import data_to_connectivity2
+from shrec.models import RecurrenceClustering
+
+def ensemble(T, N, seed, coupling=0.1):
+    rng = np.random.default_rng(seed)
+    z = np.where(np.arange(T) % 2 == 0, 0.2, 0.8)
+    r = rng.uniform(3.81, 3.97, size=N)
+    X = np.empty((T, N))
+    for k in range(N):
+        x = np.empty(T); x[0] = rng.uniform(0.1, 0.9)
+        for t in range(T - 1):
+            x[t + 1] = np.clip(r[k] * x[t] * (1 - x[t]) + coupling * z[t], 0, 1)
+        X[:, k] = x
+    return X
+
+def lcc_fraction(A, theta=0.55):
+    B = A > theta
+    np.fill_diagonal(B, False)
+    _, lab = connected_components(B.astype(int), directed=False)
+    return np.bincount(lab).max() / A.shape[0]
+
+m = RecurrenceClustering()
+T, N_sweep = 200, [2, 4, 8, 16, 32]
+mean_lcc = [np.mean([lcc_fraction(
+    data_to_connectivity2(m._make_embedding(m._preprocess(ensemble(T, N, s))), time_exclude=0))
+    for s in range(5)]) for N in N_sweep]
+
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ax.plot(N_sweep, mean_lcc, "o-", color="C3")
+ax.set_xscale("log", base=2)
+ax.set_xticks(N_sweep); ax.set_xticklabels(N_sweep)
+ax.set_xlabel("number of responses N")
+ax.set_ylabel("$T_{\\mathrm{LCC}}/T$")
+ax.set_title("Percolation loss as data increases")
+ax.set_ylim(0, 1.05)
+fig.tight_layout()
+```
+
+::: {.callout-important}
+## Two things that took real calibration to get right
+**Absolute, not relative, threshold.** To count connected components you must
+binarise the weighted $A$ at some edge threshold. A *quantile* threshold tracks
+the consensus weight distribution, which itself shifts with $N$ — so it re-admits
+edges and the curve *reverses*. An **absolute** threshold is fixed, so
+spurious-pair weights cross below it as they dilute: monotone fragmentation.
+
+**Weak coupling is the regime.** With *strong* coupling every response already
+imprints the same clean structure, so the consensus is $N$-invariant and there is
+*no* transition to see. The percolation transition lives precisely where single
+responses are individually ambiguous and consensus does the resolving. A critical
+phenomenon is only visible when the rest of the setup sits *near* criticality
+across the swept range — the same lesson as the signal-to-noise window in the
+[accuracy scaling law](#scaling).
+:::
+
+## The accuracy scaling law {#scaling}
+
+The percolation picture has a quantitative partner (Appendix E.2): reconstruction
+accuracy rises and saturates with the total amount of data,
+
+$$\text{Acc}(NT/\tau) = \text{Acc}_{\max}\bigl(1 - e^{-\beta \sqrt{NT/\tau}}\bigr).$$
+
+Two lessons from fitting it. First, the law is only *visible in a data-limited
+regime*: with zero noise, accuracy saturates at $N=2$ and there is nothing to fit;
+with too much noise it never recovers. There is a signal-to-noise window in which
+adding responses measurably helps — the accuracy-axis twin of the weak-coupling
+requirement above. Second, the honest way to test a scaling law is to **assert its
+qualitative content, not a tight fit**: $\beta > 0$ (accuracy grows with data),
+$\text{Acc}_{\max}$ in a usable range, a clear small-$N$→large-$N$ gain, and that
+the saturating form beats a flat baseline — never a brittle $R^2 > 0.9$ that would
+turn a real law into a flaky test.
+
+## Takeaways
+
+- Consensus is the **mean** = a soft intersection: spurious edges dilute with $N$,
+  and weights stay in $[0,1]$ (scale-free in $N$).
+- The **power mean** $M_p$ dials min↔mean↔max; SHREC uses $p=1$ (mean), the Sauer
+  baseline $p\to\infty$ (max = closest channel), with `ord=500` for float reach.
+- Adding data drives a **percolation transition** ($T_\mathrm{LCC}/T \downarrow$):
+  the giant component shatters into driver-state basins, and that fragmentation is
+  what makes the driver recoverable.
+- Both the percolation curve and the accuracy law are only visible in the right
+  (weak-coupling / finite-SNR) regime.

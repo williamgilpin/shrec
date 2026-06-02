@@ -1,0 +1,157 @@
+---
+title: "What it can & can't recover"
+jupyter: python3
+---
+
+SHREC comes with a theorem on one side and a hard limit on the other. This page
+states both precisely: what the method is *guaranteed* to be invariant to (so you
+can trust it across sensors and scales), and what it provably *cannot* resolve
+(so you don't chase an accuracy that the representation can't deliver).
+
+## The Sauer implication — and why consensus is needed
+
+The theoretical engine is **Sauer's recurrence theorem**: if two reconstructed
+response states coincide, $\hat{y}_k(t) \approx \hat{y}_k(t')$, then the driver
+recurred, $z(t) \approx z(t')$. The implication is **one-directional** — a driver
+recurrence need *not* show up in every response (the skew-product structure lets
+each response respond differently). So a single response's recurrence graph is a
+*subset* of the true driver recurrences, polluted by response-specific ones.
+Pooling many responses ([consensus](explainer-consensus.qmd)) is what turns this
+one-directional implication into a usable estimate: the shared structure
+reinforces, the idiosyncratic structure averages out.
+
+## Recovery is *up to a monotone transform*
+
+SHREC never claims to recover $z(t)$ on its original axis — only its **order**.
+The continuous driver is an eigenvector (arbitrary sign and scale); the discrete
+driver is a set of labels (arbitrary names). So the right yardstick is one that is
+itself invariant to those ambiguities: **Spearman correlation** (monotone-
+invariant) for the continuous driver, **adjusted Rand index** (label-permutation-
+invariant) for the discrete one. Choosing the metric to match the method's own
+indeterminacy is not a convenience — Pearson would penalise a perfect
+monotone-but-nonlinear recovery, and raw accuracy would penalise a relabelling.
+
+## Blind to the measurement function
+
+Because each response is standardised and recurrence depends only on the *shape*
+of the trajectory, SHREC is invariant to how each sensor distorts the driver — as
+long as the distortion is **monotone**. Observe the same driver through identity,
+a per-sensor affine gain/offset $a_k z + b_k$, or a saturating $\tanh(z/\sigma_k)$,
+and recovery is essentially unchanged.
+
+```{python}
+#| fig-cap: "Driver recovery (|Spearman| between the recovered coordinate and the true z) under three measurement functions: identity, per-sensor linear, and saturating tanh. All near 1 — SHREC reconstructs the driver up to the monotone distortion each sensor applies."
+import warnings; warnings.filterwarnings("ignore")
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import spearmanr
+from shrec.models import RecurrenceManifold
+
+T = 400
+rng = np.random.default_rng(0)
+w = rng.standard_normal(T)
+kern = np.exp(-0.5 * (np.arange(-75, 76) / 25.0) ** 2); kern /= kern.sum()
+z = np.convolve(w, kern, mode="same"); z = (z - z.mean()) / z.std()   # smooth driver
+
+def recover(measure, seed=1):
+    r = np.random.default_rng(seed)
+    X = np.empty((T, 6))
+    for i in range(6):
+        X[:, i] = measure(z, r) + 0.02 * r.standard_normal(T)
+    v = RecurrenceManifold(random_state=1).fit(X).labels_
+    return abs(spearmanr(v, z).correlation)
+
+measures = {
+    "identity\n$x=z$": lambda z, r: z.copy(),
+    "linear\n$x=a z + b$": lambda z, r: r.uniform(0.5, 3) * z + r.uniform(-2, 2),
+    "tanh\n$x=\\tanh(z/\\sigma)$": lambda z, r: np.tanh(z / r.uniform(0.5, 2)),
+}
+names = list(measures)
+rhos = [recover(measures[n]) for n in names]
+
+fig, ax = plt.subplots(figsize=(6, 3.8))
+ax.bar(names, rhos, color=["C0", "C1", "C2"])
+ax.axhline(1.0, color="k", lw=0.5)
+ax.set_ylim(0, 1.05); ax.set_ylabel("|Spearman(recovered, $z$)|")
+ax.set_title("Recovery is blind to monotone measurement")
+for i, v in enumerate(rhos):
+    ax.text(i, v + 0.02, f"{v:.3f}", ha="center")
+fig.tight_layout()
+```
+
+Stacking these on top of the geometric invariances gives the full picture of what
+the method ignores:
+
+| Invariance | Mechanism | Pinned by |
+|---|---|---|
+| Per-channel **scale** $d \to \alpha d$ | kernel is scale-covariant ($\rho, \sigma \to \alpha\rho, \alpha\sigma$) | MM2 |
+| **Rigid motion** (rotate/reflect/translate the embedding) | recurrence depends only on pairwise distances | MM7 |
+| Per-channel **affine** $a_k z + b_k$ | standardisation removes gain & offset | MM15 |
+| **Monotone** measurement | recurrence sees shape; Spearman sees order | MM24–26 |
+| **Response order** / duplication | consensus is a symmetric mean | MM13, MM16 |
+
+MM2 (scale) and MM7 (rigid motion) together are the *similarity group* — the
+method sees only distance *ratios* and angles. One caveat that decides how you'd
+*test* these: standardisation-based invariances (MM15) are only as trustworthy as
+the preprocessing; turn `standardize` off and they break — whereas the geometric
+ones (MM2, MM7) hold unconditionally.
+
+::: {.callout-note}
+## Metric in, sense out
+All of this rests on the distance being a *genuine metric* — non-negative,
+symmetric, zero only on the diagonal, triangle-respecting. The $\rho$/$\sigma$
+local-connectivity logic assumes $\rho$ is the *minimum* over a neighbourhood and
+that distances compose sanely. Swap in a non-metric (cosine dissimilarity, a
+learned embedding distance, DTW — which violates the triangle inequality) and the
+guarantees quietly stop holding. SHREC exposes a `metric=` hook for exactly this
+reason, with only Euclidean wired through.
+:::
+
+## The hard limit: what binary recurrence can encode
+
+The one thing SHREC genuinely *cannot* do is resolve more driver states than the
+recurrence graph can represent. Recurrence is, at heart, an equivalence relation —
+"same state ↔ edge" — and it resolves driver levels only as well as the responses'
+delay-embedded states separate those levels. Adjacent levels whose recurrence
+basins overlap **merge**.
+
+The cleanest evidence is the period-$p$ family of discrete drivers:
+
+| Driver | Recovery (ARI) | What happens |
+|---|---|---|
+| **period-2** (2 levels) | $\approx 0.99$ | near-perfect — the two states have disjoint basins |
+| **period-4** (4 levels) | $\approx 0.50$ | collapses to a low/high **2-way split** |
+| **period-8** (8 levels) | partial | collapses further; recovery degrades with level count |
+
+Crucially, the period-4 collapse is **representational, not a clustering
+artifact**. It was localised by replacing the clustering step with an *oracle*: a
+spectral $k$-means forced to $k=4$ on the consensus Laplacian *also* only reaches
+ARI $\approx 0.5$, and the continuous manifold reaches Spearman $|\rho| \approx
+0.38$. No clustering choice can recover what the graph does not encode — the four
+levels $\{0.1, 0.4, 0.6, 0.9\}$ simply collapse into a low/high contrast in the
+recurrence structure. Closing it would need a *richer recurrence representation*,
+not a better clusterer. This is pinned as a documented `xfail` (MM20) plus a
+characterisation test, so the limit is recorded rather than papered over.
+
+::: {.callout-tip}
+## A correction worth keeping
+An earlier note hypothesised that a *periodic* driver would make the manifold
+recover **phase** rather than **value** (since a periodic signal revisits each
+value twice per cycle), predicting low Spearman. Tested directly, it does *not*
+hold for a smooth periodic driver under direct measurement: recovery stays high
+($|\rho| \approx 0.99$), because the Fiedler coordinate and the driver value are
+both first-harmonic in phase and so remain monotonically related. A tidy reminder
+that a plausible mechanism is a hypothesis until measured — and that the honest
+fix is to correct the claim, not the data.
+:::
+
+## Takeaways
+
+- The Sauer implication is one-directional, which is *why* consensus over many
+  responses is necessary, not optional.
+- Recovery is **up to a monotone transform** — hence Spearman / ARI, and
+  invariance to scale, rigid motion, affine, and any monotone measurement.
+- It all rests on a genuine **metric**.
+- The hard limit is **representational**: binary recurrence merges adjacent
+  driver levels, so a 2-level driver is recovered while a 4-level one collapses to
+  a 2-way split — a limit no clustering tweak can lift.

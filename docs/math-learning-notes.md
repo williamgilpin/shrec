@@ -877,26 +877,30 @@ observations of one driver have delay-embeddings that are all reparametrisations
 of the same curve, so the consensus recurrence collapses to a single 1-D
 coordinate tracking the driver's value.
 
-The non-obvious part — and a genuine design decision — is the **driver had to be
-aperiodic**. My first instinct was a sine driver (like MM27 uses). But a periodic
-driver revisits every value twice per cycle, so the recurrence manifold recovers
-*phase* (a bijection with time within a cycle), not *value* — and Spearman-vs-
-value would be misleadingly low even though recovery "worked." MM27 gets away
-with a sine because its responses are *chaotic logistic maps* whose recurrence is
-governed by the forcing *value* at each step, so co-recurrence means equal `z`
-regardless of phase. Here the responses are *direct* observations, so a smooth
-*aperiodic* driver (Gaussian-smoothed noise) is needed to make value and
-manifold-coordinate monotone-related.
+I used an **aperiodic** driver (Gaussian-smoothed noise) for these, on the
+hypothesis that a periodic driver would make the manifold recover *phase* rather
+than *value* (since a sine revisits every value twice per cycle), giving a
+misleadingly low Spearman.
 
-- **📚 LEARNING TOPIC — "Phase vs value: what a 1-D manifold of a time series
-  actually recovers."** The crux of delay-embedding intuition. For a periodic
-  signal the recurrence manifold parametrises the *limit cycle* (phase); for a
-  driver-forced ensemble it can parametrise the *forcing value*. Which one you get
-  depends on whether co-recurrence is dominated by phase-coincidence or value-
-  coincidence — and that depends on the measurement model. This single
-  distinction explains why MM24-26 need an aperiodic driver while MM27 doesn't,
-  and it's probably the deepest single idea in this whole notes file. Worth a
-  figure: same driver, periodic vs aperiodic, manifold-coordinate vs z.
+> **Correction (2026-06-02, while writing the Quarto explainer).** I tested the
+> hypothesis directly and it does **not** hold: a smooth *periodic* driver under
+> direct measurement recovers at |ρ| ≈ 0.99 — essentially as well as the
+> aperiodic one. The reason: the Fiedler coordinate of the (near-circular)
+> embedded loop is the first Fourier harmonic, and the driver value is *also*
+> first-harmonic in phase, so the two stay monotonically related and Spearman
+> stays high. The aperiodic driver was a safe choice, not a necessary one — the
+> "phase-vs-value trap" was a plausible-but-untested rationalisation. Exactly the
+> failure mode the rest of these notes preach against (cf. Round 6's "tune
+> Leiden" and Round 11's triangulation). Left here, struck through, as a worked
+> example; the explainer states the corrected version.
+
+- **📚 LEARNING TOPIC — "Spearman vs the recovered coordinate" (corrected).** The
+  robust, *measured* statements: recovery is up to a monotone transform (so
+  Spearman is the right metric), and for direct monotone measurement the
+  recovered coordinate tracks driver *value* whether the driver is periodic or
+  not. The phase-vs-value decoupling is real for genuinely *chaotic* response
+  recurrence (MM27's logistic ensemble) but not for direct smooth measurement —
+  the distinction is about the *response dynamics*, not the driver's periodicity.
 - **📚 LEARNING TOPIC — "Spearman as the natural metric for an up-to-monotone
   reconstruction."** Why correlation choice encodes your invariance: Pearson
   demands linearity, Spearman demands only monotonicity, mutual information

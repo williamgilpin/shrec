@@ -1,0 +1,147 @@
+---
+title: "How we know it's right"
+---
+
+SHREC is scientific code with almost no closed-form answers: you cannot write
+down the "correct" affinity matrix for a chaotic logistic ensemble. So how do you
+test it? The answer is a *ladder of oracles* — each rung trades the certainty of
+an exact answer for the ability to check something you couldn't otherwise — plus a
+handful of process lessons that turned out to matter as much as any single test.
+The live catalog is `docs/tests-math.md` (the `MM<n>` ids).
+
+## The oracle ladder
+
+From most to least certain about the "right answer":
+
+1. **Closed-form / analytic oracle.** When the math gives an exact result, assert
+   it. The defining-equation residual ($|\sum \exp(\cdot) - \log_2 M| < 10^{-6}$),
+   the unit diagonal, the triangle inequality, the Fiedler vector of a hand-built
+   block graph. The *cheapest* such check — "does the equation we claim to solve
+   actually hold?" — was the one missing, and it caught the `fsolve` stall.
+
+2. **Invariance / equivariance (metamorphic).** When you can't predict the output
+   but you know a symmetry it must respect, assert the *relation*: scale
+   $d\to\alpha d$ leaves the affinity unchanged; permuting responses leaves the
+   labels unchanged; duplicating the ensemble leaves the consensus unchanged.
+   Finding the equivariance *before* coding gives a free, exact test (dimensional
+   analysis as a test oracle).
+
+3. **Limiting-case oracle.** Construct an input whose answer is provable by
+   design: the Sauer noise-free limit (period-2 → ARI $\approx 1$), the cycle
+   graph (Fiedler = first Fourier harmonic), the two-block graph (analytic
+   Fiedler contrast).
+
+4. **Differential / reference-implementation.** Pin an operator against an
+   independent implementation — `fit_rho_sigma` vs umap's `smooth_knn_dist`,
+   union-find vs `scipy`'s `DisjointSet`, the vectorised common-neighbour ratio vs
+   its original loop. A green differential test also *licenses a refactor*: if the
+   bespoke code equals the library on random inputs, you can delete it.
+
+5. **Property-based (Hypothesis).** Don't assert a value; assert a *property for
+   every input* (symmetric, in $[0,1]$, unit diagonal, residual-or-fallback) and
+   let the engine search the adversarial corners — duplicate points, collinear
+   clouds, extreme scales — shrinking any failure to a minimal counterexample. It
+   independently rediscovered the tied-neighbourhood degeneracy, and later the
+   near-tied *steep-root* regime, that no hand-written fixture would have found. A
+   green property test is not "proven correct" — it is "not-yet-falsified," and
+   rerunning it is cheap insurance that occasionally pays out a real refinement.
+
+6. **Surrogate / null-hypothesis.** Feed the method *independent* responses with
+   **no** shared driver and assert it recovers nothing (low ARI / flat
+   eigenvector). For a causal-discovery tool, "does not hallucinate structure" is
+   the single most important property.
+
+7. **Characterisation.** When the truth is a *limitation*, pin the limitation so a
+   future improvement is flagged: the period-4 representational collapse (MM20) is
+   pinned at ARI $\approx 0.5$ with an oracle-clusterer companion, so if a richer
+   representation ever lifts it the test fires.
+
+8. **Contract / mechanical.** sklearn round-trips, RNG isolation, output shapes,
+   "no global state mutation." Cheap pins against silent regressions.
+
+A useful refinement of (1)/(8): **producer vs consumer contract tests.** The same
+property (e.g. "valid dissimilarity: symmetric, zero-diagonal, non-negative")
+deserves a test where it is *produced* (the function) *and* where it is *consumed*
+(fed to Isomap) — because a refactor can break the link between them while each
+endpoint still looks fine on its own.
+
+## Process lessons that mattered as much as the tests
+
+### Triangulate a spec before you "fix" it {#triangulate}
+
+The most consequential change in the project — fixing the $\rho$ off-by-one in the
+adaptive kernel ([kernel page](explainer-kernel.qmd)) — touched canonical
+algorithm code that reproduces a published paper. A single source disagreeing
+(umap) is *not* enough to act: the source itself could be the typo. The discipline
+was to triangulate **four independent authorities** and act only once they were
+unanimous:
+
+1. the **primary spec** — Appendix B states the explicit equation $\rho_i \equiv
+   \min_m d_{im}$ (a formula, not loose prose);
+2. the **reference implementation** — umap's $\rho$ = nearest neighbour, verified
+   numerically;
+3. the **original author's intent**, recovered from git — the pre-refactor code's
+   own comments said `# distance to the nearest neighbor` and `# drop self`, with
+   a *commented-out* correct prior line;
+4. **internal consistency** — $\rho$ = second-nearest matched *no* source, so it
+   was an artifact, not a convention.
+
+Only with all four aligned did the change earn the right to ship. `git show
+<rev>:<path>` and the pickaxe (`git log -S`) are underused here: they recover not
+just *what* the code did but what the author *meant* — comments and commented-out
+alternatives are intent oracles.
+
+### Negative results are results
+
+Three of the most valuable outcomes were *not* green capabilities:
+
+- the **period-4 representational limit** (it's the recurrence graph, not the
+  clusterer — proven by an oracle k-means that also fails);
+- the discovery that the obvious **normalised-Laplacian** fix shows *no* effect on
+  a label-based test (the bias lives in the eigenvector *values*, not the sign) —
+  choose a metric that can see the failure you care about;
+- the **percolation construction** dead-ends (a quantile threshold re-percolates;
+  strong coupling has no transition) before the right construction was found.
+
+Documenting *why something is hard*, as a passing characterisation test, saves the
+next person the same dead-end and is as valuable as testing that something works.
+
+### When a correctness fix lowers a metric
+
+The $\rho$ fix made the kernel sharper and more faithful — and *lowered* the
+approximate time-reversal symmetry score (the driven logistic map is genuinely not
+time-reversible, and the old smoother kernel had been masking that). Driver
+recovery was unaffected. The mature response is to let the test track the truth —
+lower the threshold and document why — not to revert a correct fix to keep a
+comfortable number. The tell that it's safe: the *capability* metric is unchanged,
+only a *proxy* metric moves.
+
+### Localise failure to the right stage
+
+A multi-stage pipeline hides *where* an error lives. The move is to replace each
+downstream stage with an oracle (here: clustering with the true $k$; the
+continuous embedding with no clustering) and see whether the metric recovers. The
+first oracle that *doesn't* rescue accuracy contains the bottleneck — which is how
+the period-4 failure was pinned to the representation rather than the clustering.
+
+### Know what your solver's convergence criterion measures
+
+Two numerical lessons recur. A Newton solver that reports "converged" may be
+testing **step size**, not residual — always check the residual yourself. And a
+bracketing solver guarantees the **root location** (`xtol`), *not* the function
+residual, which is $\approx f'(\sigma^\*)\cdot\text{xtol}$ and can be large where
+$f$ is steep — so on near-tied neighbourhoods a perfectly-located root can leave a
+$10^{-5}$ residual. Test the property the solver actually guarantees. And before
+solving for a target, check it lies in the operator's range (*feasibility before
+optimisation*) — the tied-neighbourhood $\sigma$-degeneracy and the
+$1/N$ sparsity floor are both "the equation has no solution" bugs, not solver
+failures.
+
+## The shape of a trustworthy suite
+
+No single rung is enough. The unit oracle (MM1) found the σ stall; the *pipeline*
+tests revealed that the naive fix changed real behaviour on degenerate inputs. The
+differential test found the ρ bug; the invariance tests confirmed the fix didn't
+break the symmetries. Keep both altitudes — exact-but-narrow and
+approximate-but-end-to-end — and let property-based search probe the corners
+between them.

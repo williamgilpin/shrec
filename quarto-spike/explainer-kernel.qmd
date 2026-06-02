@@ -1,0 +1,163 @@
+---
+title: "The adaptive kernel"
+jupyter: python3
+---
+
+Stage 2 turns a point cloud (one delay-embedded response) into a weighted
+recurrence graph. The [stage page](stage-simplicial.qmd) shows the mechanics;
+this page explains the four design choices that make it work, and the numerical
+subtlety that makes it *correct*.
+
+The per-point fuzzy membership is
+
+$$A_{ij} = \exp\!\left[-\frac{\operatorname{ReLU}(d_{ij} - \rho_i)}{\sigma_i}\right],$$
+
+with a local scale $\rho_i$ and a bandwidth $\sigma_i$ fixed per row by the
+**defining equation**
+
+$$\sum_{m=1}^{M} \exp\!\left[-\frac{\operatorname{ReLU}(d_{im} - \rho_i)}{\sigma_i}\right] = \log_2 M ,$$
+
+summed over the $M$ nearest neighbours. Four questions: why $\log_2 M$, why the
+$\rho$ shift, how $\sigma$ is found, and what the symmetrisation means.
+
+## Why `log₂ M`? — a perplexity target
+
+This is the UMAP `smooth_knn_dist` target, and it is a *perplexity-like*
+normalisation. Instead of every point having $M$ hard neighbours, each point is
+asked to carry a fixed **effective** number of fuzzy neighbours, $\log_2 M$.
+
+Read the left-hand side as a total "fuzzy mass." Holding it constant across all
+points forces $\sigma_i$ to *adapt to local density*: in a dense region the
+neighbours are close, so a small $\sigma$ already accumulates mass $\log_2 M$; in
+a sparse region $\sigma$ must grow to reach the same mass. The kernel therefore
+sharpens where the attractor is dense and broadens where it is sparse — the
+single property a fixed-$\varepsilon$ recurrence plot cannot have. (t-SNE's
+perplexity is the same idea with Shannon entropy / $\ln$ in place of $\log_2$.)
+
+## Why subtract `ρ` — local connectivity
+
+$\rho_i = \min_m d_{im}$ is the distance to the **nearest** neighbour.
+Subtracting it (then ReLU-clipping the negative part) means the nearest
+neighbour gets membership $\exp(0) = 1$: *every point is certainly connected to
+its closest neighbour, regardless of absolute scale.* This "local connectivity =
+1" shift is what lets the graph span regions of very different density without
+the sparse parts fragmenting — the excess distance $d_{ij} - \rho_i$ is measured
+*relative to* each point's own neighbourhood scale.
+
+::: {.callout-note}
+## A convention worth getting exactly right
+"$\rho =$ nearest neighbour" sounds obvious, but it hides an off-by-one that
+survived in the code for a long time. The neighbour distances are built by
+sending the self-distance to $+\infty$ (to exclude it) *and then* slicing
+`[1:k+1]` to "drop self" — but the $\infty$ already moved self to the end, so
+the slice dropped the nearest *real* neighbour, making $\rho$ the **second**
+nearest. Appendix B states it explicitly — $\rho_i \equiv \min_m d_{im}$ — and
+UMAP and the original author's own code comments agree. The fix is to slice
+`[:k]`. See [How we know it's right](explainer-testing.qmd#triangulate) for how
+four independent sources settled that it was a bug, not a convention.
+
+A second, *genuine* convention difference: UMAP's `n_neighbors = M` counts the
+query point itself, so it sums over $M-1$ real neighbours toward $\log_2 M$;
+SHREC's convention uses $M$ real neighbours. Neither is wrong — but the
+off-by-one in "what $M$ counts" shifts every bandwidth by one neighbour, a
+perennial source of silent disagreement between kNN implementations.
+:::
+
+## Finding `σ` — bracketing beats Newton
+
+There is no closed form for $\sigma_i$; it must be found numerically. The key
+observation is that the left-hand side is **strictly monotone increasing** in
+$\sigma$:
+
+- as $\sigma \to 0^{+}$, every non-nearest term $\exp(-\text{positive}/\sigma) \to 0$, so the sum falls to the count of exactly-tied nearest neighbours (generically $1 < \log_2 M$);
+- as $\sigma \to \infty$, every term $\exp(-x/\sigma) \to 1$, so the sum rises to $M > \log_2 M$.
+
+A continuous function crossing from below the target to above it has **exactly
+one root**, and a *bracketing* solver (`scipy.optimize.brentq` on a wide
+interval) finds it to machine precision — no initial guess, no Jacobian, no
+stalls.
+
+```{python}
+#| fig-cap: "The defining-equation residual f(σ) = Σ exp(−ReLU(d−ρ)/σ) − log₂M. Healthy neighbourhood (blue): strictly monotone, one root (marked). Fully-tied neighbourhood (orange): the mass is pinned at M > log₂M for every σ — no root exists, and the solver must detect this rather than stall."
+import numpy as np
+import matplotlib.pyplot as plt
+
+def relu(x):
+    return np.maximum(0.0, x)
+
+M = 10
+target = np.log2(M)
+
+# A healthy neighbourhood: distinct neighbour distances.
+healthy = np.array([1.0, 1.2, 1.5, 1.9, 2.4, 3.0, 3.7, 4.5, 5.4, 6.4])
+# A fully-tied neighbourhood: all M nearest at the same distance (e.g. from a
+# clipped/quantised series with duplicate embedded points).
+tied = np.full(M, 1.0)
+
+def f(sigma, d):
+    rho = d[0]
+    return np.array([np.sum(np.exp(-relu(d - rho) / s)) - target for s in sigma])
+
+sig = np.geomspace(1e-2, 1e3, 400)
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ax.plot(sig, f(sig, healthy), label="healthy: one root", color="C0")
+ax.plot(sig, f(sig, tied), label="fully tied: no root", color="C1")
+ax.axhline(0, color="k", lw=0.6)
+from scipy.optimize import brentq
+root = brentq(lambda s: f(np.array([s]), healthy)[0], 1e-6, 1e6)
+ax.plot(root, 0, "o", color="C0", ms=8, label=f"σ* = {root:.2f}")
+ax.set_xscale("log")
+ax.set_xlabel("σ (log scale)")
+ax.set_ylabel("f(σ) = row mass − log₂M")
+ax.legend()
+fig.tight_layout()
+```
+
+::: {.callout-warning}
+## Convergence criteria lie
+The original solver used `fsolve` (MINPACK's Newton-style `hybrd`). On a fraction
+of rows it returned `ier=1` ("converged") while leaving $\sigma$ *exactly at the
+initial guess* and the residual at $\approx 2.8$. `hybrd` tests the **step size**
+against `xtol`, not the residual — a tiny first step (from a badly-scaled
+Jacobian) lets it quit at iteration 0 and still report success. The lesson is
+general: **check the residual yourself; never trust a solver's status flag.**
+The bracketed `brentq` drives every residual to $\sim 10^{-12}$.
+:::
+
+### When the equation has no solution
+
+The orange curve above never crosses zero. That is not a solver failure — it is a
+*degenerate model*: if all $M$ nearest neighbours sit at the same distance
+(exact ties, which `np.clip`-saturated logistic series produce in abundance),
+the row mass is pinned at $M > \log_2 M$ for every $\sigma$. The honest response
+is to **detect the degeneracy** ($f(\sigma\to 0^+) \ge 0$) and define the
+limiting behaviour explicitly ($\sigma$ indeterminate $\Rightarrow$ fall back to
+$\rho$), not to loosen tolerances until the solver stops complaining. This is the
+same "feasibility before optimisation" pattern that appears in the
+[sparsity solver](explainer-consensus.qmd): always ask whether the target lies in
+the operator's range before solving for it.
+
+## The symmetrisation is a fuzzy OR
+
+The per-point affinity is directional ($A_{ij}$ uses point $i$'s scale, $A_{ji}$
+uses $j$'s). SHREC symmetrises with the **probabilistic t-conorm**
+
+$$A \leftarrow A + A^\top - A \circ A^\top ,$$
+
+which is exactly $P(\text{edge}) = P(a) + P(b) - P(a)P(b)$ — the probability that
+*at least one* of two independent directed edges fires (fuzzy OR). It is not
+`max` and not the mean: it is the unique combination that treats the two
+directions as independent votes. The diagonal stays at $1$ ($1 + 1 - 1 = 1$) and
+every entry stays in $[0, 1]$ — both pinned as closed-form tests.
+
+## Takeaways
+
+- $\log_2 M$ is a perplexity target: constant effective neighbour count ⇒
+  density-adaptive bandwidth.
+- $\rho$ = nearest-neighbour distance implements scale-free *local connectivity*;
+  the exact neighbour-counting convention is a real source of bugs.
+- Monotonicity in $\sigma$ makes a **bracketing** solver unconditionally robust
+  where Newton silently stalls — and makes the degenerate (tied) case detectable
+  rather than mysterious.
+- The fuzzy-union symmetrisation is a principled "edge if either direction
+  votes," not an ad-hoc `max`.

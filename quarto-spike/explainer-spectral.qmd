@@ -1,0 +1,173 @@
+---
+title: "From graph to driver"
+jupyter: python3
+---
+
+For a **continuous** driver, SHREC reads it off the recurrence graph as a single
+real coordinate per time point — the **Fiedler eigenvector** of the graph
+Laplacian. This page explains why that vector *is* the driver, what it degrades
+into when the graph misbehaves, and the one modelling choice (RatioCut vs NCut)
+that the paper flags but leaves open.
+
+## The Laplacian and its quadratic form
+
+For an undirected weighted graph with affinity $A$ and degree
+$D = \operatorname{diag}(\sum_j A_{ij})$, the **combinatorial Laplacian** is
+$L = D - A$. The single fact that explains everything is its quadratic form:
+
+$$f^\top L f = \tfrac{1}{2} \sum_{i,j} A_{ij}\,(f_i - f_j)^2 \;\ge\; 0 .$$
+
+This is the *energy* of a signal $f$ on the graph: small when $f$ varies slowly
+across strongly-connected nodes, large when it jumps across heavy edges. So the
+**smallest non-trivial eigenvector minimises this energy** — it is the smoothest
+non-constant coordinate the graph admits. A slowly varying shared driver, sampled
+at recurrent times, is exactly that: nodes joined by a recurrence edge should
+carry nearly the same driver value, which is what "small $\sum A_{ij}(f_i-f_j)^2$"
+says.
+
+Two structural facts follow:
+
+1. **The constant vector is always the trivial eigenvector at $\lambda_1 = 0$**
+   ($L\mathbf{1} = 0$, since rows sum to zero). That is why reconstruction asks
+   for `eigh(subset_by_index=[1, …])` — it *skips* index 0, the uninformative
+   constant.
+2. **Eigenvalue 0 counts connected components.** The multiplicity of the
+   eigenvalue $0$ equals the number of connected components, and its eigenspace
+   is spanned by the component-indicator vectors. The second-smallest eigenvalue
+   $\lambda_2$ (the *algebraic connectivity*, or Fiedler value) is $>0$ **iff**
+   the graph is connected.
+
+## Standing waves: the path graph
+
+The cleanest intuition is the path graph (a 1-D chain). Its Laplacian
+eigenvectors are literally the discrete vibration modes $\cos(\pi k i / n)$ —
+standing waves of increasing frequency, ordered by eigenvalue. The Fiedler
+vector is the lowest mode: a single smooth ramp from one end to the other.
+
+```{python}
+#| fig-cap: "Laplacian eigenvectors of a path graph are standing waves cos(πk i/n). The Fiedler vector (k=1, blue) is the smoothest non-constant coordinate — a monotone ramp. Higher modes oscillate faster (larger eigenvalue = more energy)."
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import eigh
+
+n = 60
+A = np.zeros((n, n))
+i = np.arange(n - 1)
+A[i, i + 1] = A[i + 1, i] = 1.0            # path graph
+L = np.diag(A.sum(1)) - A
+w, V = eigh(L)
+
+fig, ax = plt.subplots(figsize=(6.5, 4))
+for k, c in zip([1, 2, 3], ["C0", "C1", "C2"]):
+    ax.plot(V[:, k], color=c, label=f"mode k={k}  (λ={w[k]:.3f})")
+ax.axhline(0, color="k", lw=0.5)
+ax.set_xlabel("node i (time)")
+ax.set_ylabel("eigenvector value")
+ax.set_title("Path-graph Laplacian eigenvectors = standing waves")
+ax.legend()
+fig.tight_layout()
+```
+
+## When the graph disconnects: λ₂ → 0
+
+If the recurrence graph (nearly) splits into two pieces, $\lambda_2 \to 0$ and the
+"Fiedler" vector morphs from a smooth ramp into a hard **step function** — an
+arbitrary mixture of the two component indicators, which `eigh` returns without
+complaint. That is not a driver; it is an artifact. The reconstruction guard
+watches $\lambda_2$ against the spectral scale ($\operatorname{trace} L = \sum
+\text{degree}$) and warns when it collapses.
+
+```{python}
+#| fig-cap: "Two equal blocks joined by a single bridge of weight b. As b → 0 the Fiedler value λ₂ slides to 0 and the Fiedler vector hardens from a smooth contrast into a step function — a connected-component indicator, not a driver coordinate."
+def two_block(p=30, bridge=1.0):
+    N = 2 * p
+    A = np.zeros((N, N))
+    A[:p, :p] = 1.0
+    A[p:, p:] = 1.0
+    np.fill_diagonal(A, 0.0)
+    A[p - 1, p] = A[p, p - 1] = bridge
+    return A
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+for b, c in zip([1.0, 1e-2, 1e-4], ["C0", "C1", "C2"]):
+    L = np.diag(two_block(bridge=b).sum(1)) - two_block(bridge=b)
+    w, V = eigh(L, subset_by_index=[1, 1])
+    v = V[:, 0] * np.sign(V[0, 0])
+    axes[0].plot(v, color=c, label=f"bridge={b:g}  (λ₂={w[0]:.1e})")
+axes[0].set_title("Fiedler vector hardens into a step")
+axes[0].set_xlabel("node"); axes[0].set_ylabel("Fiedler value"); axes[0].legend()
+
+bridges = np.geomspace(1e-4, 1.0, 25)
+lam2 = [eigh(np.diag(two_block(bridge=b).sum(1)) - two_block(bridge=b),
+             subset_by_index=[1, 1])[0][0] for b in bridges]
+axes[1].loglog(bridges, lam2, "o-", color="C3")
+axes[1].set_title("Algebraic connectivity λ₂ vs bridge weight")
+axes[1].set_xlabel("bridge weight b"); axes[1].set_ylabel("λ₂")
+fig.tight_layout()
+```
+
+## RatioCut vs NCut — the degree-bias choice
+
+Minimising $f^\top L f$ subject to $f \perp \mathbf{1}$, $\lVert f\rVert = 1$ is a
+relaxation of **RatioCut** (balance partitions by *number of nodes*). The
+normalised Laplacians $L_\mathrm{sym} = D^{-1/2} L D^{-1/2}$ and
+$L_\mathrm{rw} = D^{-1} L$ relax **NCut** (balance by *volume* = total degree). The
+practical difference: with the unnormalised $L$, a few very high-degree nodes
+dominate the Fiedler vector, so the embedding can fixate on the densest response
+channel instead of the shared driver — the "response bias" the paper names, with
+"preconditioning the graph Laplacian" as the suggested remedy.
+
+A subtlety worth flagging, because it changes how you'd *test* the two: on clean,
+balanced blocks the normalisation barely changes the **sign** pattern of the
+Fiedler vector (a discrete cut), so a label-based ARI test sees no difference.
+The bias lives in the eigenvector **values**: under degree heterogeneity the
+unnormalised vector puts ~half its energy on the high-degree block, the
+normalised one almost none. Since the continuous driver uses the *values*
+(correlated against $z(t)$), not a binary cut, that value-level distortion is
+exactly what matters — and a naive label test would have hidden it. SHREC keeps
+the paper-faithful unnormalised $L$ by default and exposes the normalised variant
+as an option.
+
+## Degenerate eigenspaces: the cycle graph
+
+One trap when you test against an analytic answer: symmetry can make eigenvalues
+**degenerate**, and then individual eigenvectors are basis-arbitrary. The cycle
+graph $C_n$ is circulant, so its eigenvectors are the Fourier modes
+$\cos(2\pi m i/n)$, $\sin(2\pi m i/n)$ with eigenvalues $2 - 2\cos(2\pi m/n)$. The
+Fiedler eigenvalue ($m=1$) is **doubly degenerate** — the eigensolver may return
+*any* unit vector in the first-harmonic plane $\operatorname{span}\{\cos, \sin\}$,
+so the Fiedler vector is fixed only up to **sign *and* phase**. The right way to
+state (or test) the answer is therefore a *subspace* claim — "the recovered
+vector lies in the first-harmonic plane" — never "it equals $\cos$."
+
+```{python}
+#| fig-cap: "Cycle graph C_n: the Fiedler eigenvalue is doubly degenerate, so the two recovered eigenvectors are an arbitrary orthonormal basis of the first-harmonic plane span{cos(2πi/n), sin(2πi/n)}. Any sinusoid of that frequency is an equally valid Fiedler vector."
+n = 60
+A = np.zeros((n, n))
+i = np.arange(n)
+A[i, (i + 1) % n] = 1.0
+A[i, (i - 1) % n] = 1.0                      # cycle graph
+L = np.diag(A.sum(1)) - A
+w, V = eigh(L, subset_by_index=[1, 2])       # the degenerate Fiedler pair
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(V[:, 0], color="C0", label=f"recovered #1 (λ={w[0]:.3f})")
+ax.plot(V[:, 1], color="C1", label=f"recovered #2 (λ={w[1]:.3f})")
+theta = 2 * np.pi * i / n
+ax.plot(np.cos(theta) / np.sqrt(n / 2), "k--", lw=1, label="cos(2πi/n)")
+ax.set_xlabel("node i"); ax.set_ylabel("value")
+ax.set_title("Degenerate Fiedler pair = first-harmonic plane")
+ax.legend(fontsize=8)
+fig.tight_layout()
+```
+
+## Takeaways
+
+- The Fiedler eigenvector minimises $\sum A_{ij}(f_i-f_j)^2$ — it is the graph's
+  smoothest non-trivial coordinate, which is what a continuous driver looks like.
+- Eigenvalue 0 counts components; $\lambda_2 \to 0$ turns the driver into a step
+  function (the guard watches for this).
+- RatioCut ($L$) vs NCut ($L_\mathrm{rw}$) barely moves the *sign* but changes the
+  *values* — and SHREC's continuous driver lives in the values.
+- Symmetry-degenerate eigenvalues (the cycle graph) mean the answer is a
+  *subspace*, not a vector.

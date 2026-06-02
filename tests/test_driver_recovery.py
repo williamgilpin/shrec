@@ -14,13 +14,14 @@ All three are *monotone* in z, so all three should recover it: the recurrence
 manifold of a set of monotone observations of the same driver collapses onto a
 single 1-D coordinate that tracks the driver's value.
 
-The driver is a smooth, aperiodic signal (Gaussian-smoothed noise) rather than a
-periodic one on purpose: a periodic driver revisits every value twice per cycle,
-so the recurrence manifold recovers *phase* (bijective with time) instead of
-*value*, and Spearman-vs-value would be artificially low. A slowly varying
-aperiodic driver makes value and manifold-coordinate monotone-related, which is
-what these oracles assert. (The periodic-driver / phase story is its own topic in
-docs/math-learning-notes.md, Round 9.)
+The driver is a smooth, aperiodic signal (Gaussian-smoothed noise). This is a
+safe choice, not a necessary one: an earlier hypothesis that a *periodic* driver
+would make the manifold recover phase (not value), depressing Spearman, was
+tested and does NOT hold for direct monotone measurement — a smooth periodic
+driver also recovers at |ρ| ≈ 0.99, because the Fiedler coordinate and the driver
+value are both first-harmonic in phase. (See docs/math-learning-notes.md Round 9
+correction; the phase/value decoupling is real for chaotic response recurrence,
+not for direct measurement.)
 """
 import numpy as np
 import pytest

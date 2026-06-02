@@ -1,0 +1,58 @@
+---
+title: "Understanding the Math"
+---
+
+The [Algorithm](algorithm.qmd) pages walk through *what* the SHREC pipeline
+computes, stage by stage. This section is the companion *why*: the handful of
+mathematical ideas that make each stage work, the conventions that are easy to
+get subtly wrong, and the reasoning that pins each piece as correct.
+
+It grew out of a working journal kept while building the math-correctness test
+suite (`docs/tests-math.md`, the `MM<n>` oracles) — every subtlety here was
+either a design decision, a bug that the tests caught, or a "why is it done
+*this* way" question that turned out to have a real answer.
+
+## A map of the pipeline to the ideas
+
+| Pipeline stage | The deep questions | Page |
+|---|---|---|
+| **2. Adaptive kernel** | Why `log₂ M`? Why subtract the nearest-neighbour distance? Why a *bracketed* root-solve? What is the fuzzy-union symmetrisation really doing? | [The adaptive kernel](explainer-kernel.qmd) |
+| **4. Reconstruction** | Why the Fiedler eigenvector of `L = D − A`? What does eigenvalue 0 count? RatioCut vs NCut, and degenerate eigenspaces. | [From graph to driver](explainer-spectral.qmd) |
+| **3. Consensus** | Why *mean* the per-response graphs? Power means and the min↔mean↔max dial. How adding data drives a *percolation transition*. | [Pooling & percolation](explainer-consensus.qmd) |
+| **End to end** | What can SHREC provably recover, and what can't it? Invariances, phase-vs-value, and the representational limit. | [What it can & can't recover](explainer-limits.qmd) |
+| **Correctness** | How do you test scientific code that has no closed-form "right answer"? The oracle ladder and the meta-lessons. | [How we know it's right](explainer-testing.qmd) |
+
+## Five ideas, if you read nothing else
+
+1. **The adaptive kernel is a perplexity normaliser.** Each point gets a fixed
+   *effective* number of fuzzy neighbours (`log₂ M`), so the bandwidth `σ`
+   self-adapts to local density — dense regions get a sharp kernel, sparse ones
+   a broad kernel. ([kernel](explainer-kernel.qmd))
+
+2. **The continuous driver is the smoothest non-trivial coordinate on the
+   recurrence graph** — the Fiedler eigenvector of the Laplacian, which
+   minimises `Σ A_ij (f_i − f_j)²`. ([spectral](explainer-spectral.qmd))
+
+3. **Consensus is a soft intersection.** Averaging fuzzy graphs keeps an edge
+   only where many responses agree; spurious edges dilute as you add data, and
+   the graph undergoes a *percolation transition* from one giant blob into
+   driver-state basins. ([consensus](explainer-consensus.qmd))
+
+4. **SHREC recovers the driver only up to a monotone transform**, and only the
+   structure that *binary recurrence* can encode — which is why a 2-level driver
+   is recovered near-perfectly but a 4-level one collapses to a 2-way split.
+   ([limits](explainer-limits.qmd))
+
+5. **You test it by triangulating** closed-form oracles, invariances, reference
+   implementations, and statistical nulls — and by being honest when the truth
+   is a limit, a convention, or a regime you had to find.
+   ([testing](explainer-testing.qmd))
+
+## A recurring meta-lesson
+
+The same habit shows up at every stage: **localise a claim to the right
+construction, triangulate the spec before trusting or "fixing" it, and let the
+test track the truth** — including when that truth is uncomfortable (a method
+that fails on period-4, a "fix" that lowers a sanity metric, a percolation curve
+that only appears in the right coupling regime). Several of the pages below are
+case studies in exactly that.
