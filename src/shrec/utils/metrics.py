@@ -67,7 +67,7 @@ def sparsify(a0, sparsity=None, weighted=False):
         sparsity = otsu_threshold(a0)
     a = a0.copy()
     denom = np.sum(np.ones_like(a))
-    thresh = np.percentile(np.ravel(np.abs(a)), 100 * sparsity, interpolation="higher")
+    thresh = np.percentile(np.ravel(np.abs(a)), 100 * sparsity, method="higher")
     a[np.abs(a) <= thresh] = 0  # sparsify
     if weighted:
         pass

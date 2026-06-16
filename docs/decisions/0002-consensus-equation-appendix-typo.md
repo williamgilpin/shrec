@@ -1,6 +1,11 @@
 # 0002 — The appendix typo: consensus equation prints a bare sum
 
-**Status:** confirmed · **Date:** 2026-06-10
+**Status:** confirmed; margin note applied (2026-06-16) · **Date:** 2026-06-10
+
+> **Applied 2026-06-16.** The recommended margin note landed in
+> `architecture.md` §1 step 4 (the printed-sum typo + the immateriality
+> argument), and the stale `aggregation_order` reference in that paragraph was
+> corrected to the new `aggregation` modes.
 
 ## The remembered typo, located
 

@@ -16,13 +16,14 @@ decision → status). Numbered, never renumbered.
 | # | Title | Status |
 |---|-------|--------|
 | [0001](0001-audit-scope-and-method.md) | Audit scope and triangulation method | accepted |
-| [0002](0002-consensus-equation-appendix-typo.md) | The appendix typo: consensus equation prints a bare sum, prose says "average" | **confirmed** |
+| [0002](0002-consensus-equation-appendix-typo.md) | The appendix typo: consensus equation prints a bare sum, prose says "average" | **confirmed; note applied** |
 | [0003](0003-rho-nearest-neighbour-reconfirmed.md) | ρ ≡ minₘ dᵢₘ is *not* a typo — re-verified against the PDF | confirmed |
 | [0004](0004-defining-equation-faithful.md) | σ defining-equation tests (MM1–MM5) are paper-faithful | accepted |
-| [0005](0005-mm16-overclaims-normalisation.md) | MM16 cannot distinguish mean from sum — docstring over-claims | recommend doc fix |
+| [0005](0005-mm16-overclaims-normalisation.md) | MM16 cannot distinguish mean from sum — docstring over-claims | **applied** |
 | [0006](0006-percolation-direction-is-an-interpretation.md) | MM28's N-direction is a figure interpretation, not a printed equation | accepted with caveat |
 | [0007](0007-overall-verdict.md) | Overall verdict: the suite tests the right math | accepted |
 | [0008](0008-pipeline-modularization.md) | Pipeline modularization: stage strategies + preset models | **done** |
+| [0009](0009-pipeline-combo-coverage.md) | Coverage plan for the composable pipeline (tests/benchmarks/examples) | plan |
 
 ## One-paragraph summary
 

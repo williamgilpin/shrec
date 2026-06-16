@@ -144,14 +144,41 @@ class TestFullPipelineScaleInvariance:
 # --- §5b.2 MM16 — idempotence under response duplication --------------------
 
 class TestResponseDuplicationIdempotence:
-    """Consensus aggregation is a *mean* over responses, so duplicating the
-    whole ensemble cannot change the consensus graph: with k copies the mean is
-    `(k·ΣA)/(k·N) = (ΣA)/N`, identical to one copy. Therefore `fit(X)` and
-    `fit([X, X])` give the same driver. Pins that the consensus step weights
-    responses uniformly and renormalises by the response count (rather than
-    accumulating raw mass). Stated on the *ensemble* rather than a single
-    repeated channel because `standardize_ts` squeezes an (T, 1) input to 1-D.
+    """Duplicating the whole response ensemble must not change the driver:
+    `fit(X)` and `fit([X, X])` give the same labels.
+
+    Note on what each assertion pins (decision 0005). The two *label-level*
+    tests below assert driver-invariance under duplication — but that holds
+    for *any* uniform consensus, mean **or** sum, because every downstream
+    step (Leiden modularity, the Fiedler eigenvector of `L = D − A`) is
+    invariant to a global positive scale. So they do **not** by themselves
+    pin the `1/K` normalisation (cf. the Appendix-B printed-sum typo, 0002).
+    The `1/K` is pinned separately by `test_consensus_mean_is_idempotent`
+    below, which asserts at the *matrix* level — where a mean is idempotent
+    under duplication but a raw sum would double the weights.
+
+    Stated on the *ensemble* rather than a single repeated channel because
+    `standardize_ts` squeezes an (T, 1) input to 1-D.
     """
+
+    def test_consensus_mean_is_idempotent(self, rng):
+        """Matrix-level pin of the `1/K` (mean, not raw sum): the consensus
+        affinity built from a duplicated ensemble must equal the one built
+        from a single copy, elementwise. A mean satisfies this
+        (`mean_{2K} = mean_K` for duplicated responses); a raw sum would
+        double every entry. This is the assertion the label-level tests
+        cannot make (decision 0005)."""
+        from shrec.recurrence import data_to_connectivity2
+
+        X = _square_wave_responses(T=200, n_responses=4)
+        # data_to_connectivity2 consumes (n_responses, T, n_dims); embed a
+        # trivial dimension axis and duplicate the response (axis-0) ensemble.
+        stack = X.T[:, :, None]
+        stack_dup = np.concatenate([stack, stack], axis=0)
+
+        A_one = data_to_connectivity2(stack, time_exclude=0)
+        A_dup = data_to_connectivity2(stack_dup, time_exclude=0)
+        np.testing.assert_allclose(A_dup, A_one, atol=1e-12)
 
     def test_clustering_idempotent_under_duplication(self):
         X = _square_wave_responses(T=400, n_responses=4)

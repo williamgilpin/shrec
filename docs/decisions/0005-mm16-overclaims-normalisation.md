@@ -1,6 +1,13 @@
 # 0005 — MM16 cannot distinguish mean from sum; docstring over-claims
 
-**Status:** recommend doc fix · **Date:** 2026-06-10
+**Status:** applied (2026-06-16) · **Date:** 2026-06-10
+
+> **Applied 2026-06-16.** All three recommendations landed: the MM16 docstring
+> was reworded to state what the label tests actually pin; a matrix-level
+> assertion `test_consensus_mean_is_idempotent` now pins the `1/K`
+> (mean-vs-sum) directly on `data_to_connectivity2`; and the `tests-math.md`
+> MM16 row was updated. Suite: 151 passed (`-m "not slow"`), the +1 being the
+> new test.
 
 ## The finding
 

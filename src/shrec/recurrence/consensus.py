@@ -70,16 +70,20 @@ def data_to_connectivity2(
     """
     nb, nt, _ = X.shape
 
-    if not verbose:
-        warnings.filterwarnings('ignore')
-
     def per_response():
         for ind, X0 in enumerate(X):
             if verbose and nb >= 10 and ind % (nb // 10) == 0:
                 print(ind, "/", len(X), flush=True)
             yield dataset_to_simplex(X0, k=k, tol=tol, metric=metric)
 
-    wmat = _aggregate(per_response(), nb, aggregation)
+    # Suppress the per-row σ-solve chatter *locally* — the old code called the
+    # bare `warnings.filterwarnings('ignore')`, which permanently mutated the
+    # process-wide filter (and silently swallowed the downstream Fiedler
+    # connectivity-guard warning). Scope it to this computation instead.
+    with warnings.catch_warnings():
+        if not verbose:
+            warnings.simplefilter('ignore')
+        wmat = _aggregate(per_response(), nb, aggregation)
 
     if time_exclude > 0:
         mask = 1 - (

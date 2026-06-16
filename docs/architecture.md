@@ -29,8 +29,14 @@ responses `x_k(t)`. The pipeline (paper Appendix B):
    - Affinity `A^(k)_ij = exp[-ReLU(d^(k)_ij − ρ_i)/σ_i]`.
      Symmetrise via fuzzy union `A + Aᵀ − A∘Aᵀ`.
 4. **Consensus aggregation** across responses:
-   `A_ij = (1/K) Σ_k A^(k)_ij` (paper uses mean; the code generalises
-   to a `p`-norm via `aggregation_order`).
+   `A_ij = (1/K) Σ_k A^(k)_ij` — the elementwise mean (`SimplicialConnectivity`
+   default; the code also offers `max` / `pnorm:<p>` aggregation).
+   **Note (paper typo, decision 0002):** the paper's *printed* equation
+   (Appendix B, p.12) is a bare sum `A_ij ≡ Σ_k A^(k)_ij` — the `1/K` is
+   dropped — but the prose two words earlier says "elementwise **average**",
+   which is what the code implements. The difference is immaterial to the
+   reconstructed driver (Leiden modularity and the Fiedler eigenvector of
+   `L = D − A` are invariant to a global positive scale).
 5. **Driver reconstruction**:
    - **Discrete driver** → Leiden community detection on `A`; cluster
      labels are the driver symbols.
