@@ -8,6 +8,13 @@ aggregates per-response simplicial complexes across an ensemble.
 from shrec.recurrence.simplicial import dataset_to_simplex, relu
 from shrec.recurrence.kernel import data_to_connectivity, distance_to_connectivity
 from shrec.recurrence.consensus import data_to_connectivity2
+from shrec.recurrence.connectivity import (
+    CommonNeighborsConnectivity,
+    Connectivity,
+    ExpKernelConnectivity,
+    PrecomputedConnectivity,
+    SimplicialConnectivity,
+)
 
 __all__ = [
     "dataset_to_simplex",
@@ -15,4 +22,10 @@ __all__ = [
     "data_to_connectivity",
     "distance_to_connectivity",
     "data_to_connectivity2",
+    # connectivity stage strategies
+    "Connectivity",
+    "SimplicialConnectivity",
+    "ExpKernelConnectivity",
+    "CommonNeighborsConnectivity",
+    "PrecomputedConnectivity",
 ]

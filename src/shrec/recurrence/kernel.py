@@ -45,7 +45,7 @@ def data_to_connectivity(X, time_exclude=0, scale=1.0, ord=1.0, metric="euclidea
 
     bd = np.zeros((nt, nt))
     for i in range(nb):
-        dmat = cdist(X[i], X[i])
+        dmat = cdist(X[i], X[i], metric=metric)
         surprise = dmat / np.std(dmat)
         bd += (1 / nb) * np.exp(-surprise * ord / thresh)
 

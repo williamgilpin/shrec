@@ -40,10 +40,9 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         Whether `_neighbors_to_cliques` produces a weighted output.
     time_exclude : int
         Number of neighbour timepoints around each row to mask out.
-    metric : "euclidean" | "dtw"
-        Distance metric (only "euclidean" is wired through cdist today).
-    scale, aggregation_order : float
-        Tunables for the exp-kernel recurrence (`ClassicalRecurrenceClustering`).
+    metric : str
+        Distance metric forwarded to `scipy.spatial.distance.cdist` by the
+        connectivity stage (any cdist-supported metric).
     padding : "symmetric" | "constant" | None
         `numpy.pad` mode for the delay embedding.
     fill_nan : bool
@@ -57,32 +56,26 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         tolerance=0.01,
         d_embed=3,
         noise=0.0,
-        eps=0.025,
         random_state=None,
         make_embedding=True,
         time_exclude=0,
         standardize=True,
         power_transform=False,
         weighted_connectivity=True,
-        merge="min",
         use_sparse=False,
         store_adjacency_matrix=False,
         detrend=False,
         metric="euclidean",
-        scale=1.0,
-        aggregation_order=1.0,
         padding="symmetric",
         fill_nan=False,
         verbose=False,
     ):
         self.tolerance = tolerance
-        self.eps = eps
         self.make_embedding = make_embedding
         self.d_embed = d_embed
         self.noise = noise
         self.random_state = random_state
         self.time_exclude = time_exclude
-        self.merge = merge
         self.weighted_connectivity = weighted_connectivity
         self.standardize = standardize
         self.power_transform = power_transform
@@ -91,8 +84,6 @@ class RecurrenceModel(BaseEstimator, ClusterMixin):
         self.padding = padding
         self.detrend = detrend
         self.metric = metric
-        self.scale = scale
-        self.aggregation_order = float(aggregation_order)
         self.fill_nan = fill_nan
         self.verbose = verbose
 

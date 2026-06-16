@@ -47,7 +47,7 @@ def fit_rho_sigma(knn_dists, k, tol=1e-12):
     return rho, sigma
 
 
-def dataset_to_simplex(X, k=20, tol=1e-12, precomputed=False):
+def dataset_to_simplex(X, k=20, tol=1e-12, precomputed=False, metric="euclidean"):
     """
     Fuzzy simplicial complex over a single point cloud.
 
@@ -57,6 +57,8 @@ def dataset_to_simplex(X, k=20, tol=1e-12, precomputed=False):
         k (int): number of nearest neighbours used in the σ root-solve.
         tol (float): tolerance passed to `scipy.optimize.fsolve`.
         precomputed (bool): treat ``X`` as a distance matrix.
+        metric (str): any metric accepted by
+            `scipy.spatial.distance.cdist` (ignored when ``precomputed``).
 
     Returns:
         wmat (np.ndarray): affinity matrix of shape (n_samples, n_samples).
@@ -65,7 +67,7 @@ def dataset_to_simplex(X, k=20, tol=1e-12, precomputed=False):
         McInnes, Healy, Melville. "UMAP: Uniform Manifold Approximation
         and Projection for Dimension Reduction." arXiv:1802.03426 (2018).
     """
-    dmat = X.copy() if precomputed else cdist(X, X)
+    dmat = X.copy() if precomputed else cdist(X, X, metric=metric)
 
     n = dmat.shape[0]
     dmat_zerofilled = dmat.copy()

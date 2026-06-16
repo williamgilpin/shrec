@@ -1,16 +1,26 @@
 """Discrete-driver SHREC model — Leiden community detection on the
-consensus fuzzy simplicial complex (paper Appendix B steps 3–5)."""
-import numpy as np
+consensus fuzzy simplicial complex (paper Appendix B steps 3–5).
 
-from shrec.graph import _leiden
-from shrec.models.base import RecurrenceModel
-from shrec.recurrence import data_to_connectivity2
+A preset over `ShrecPipeline`: `SimplicialConnectivity` + `LeidenReconstructor`.
+"""
+from shrec.models.pipeline import ShrecPipeline
+from shrec.recurrence.connectivity import SimplicialConnectivity
+from shrec.reconstruct import LeidenReconstructor
 
 
-class RecurrenceClustering(RecurrenceModel):
+class RecurrenceClustering(ShrecPipeline):
     """Assign a discrete cluster label to each timepoint based on community
     structure in the consensus recurrence graph. Best suited to discrete-
     time driver signals.
+
+    Parameters
+    ----------
+    resolution, objective, method
+        Leiden community-detection knobs (`graph.communities._leiden`).
+    k, tol, aggregation
+        Simplicial-connectivity knobs (paper Appendix B step 3/4); the
+        distance `metric` is inherited from the base model. Defaults
+        reproduce the canonical pipeline exactly.
     """
 
     def __init__(
@@ -18,46 +28,28 @@ class RecurrenceClustering(RecurrenceModel):
         resolution=1.0,
         objective="modularity",
         method="graspologic",
+        k=10,
+        tol=1e-5,
+        aggregation="mean",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.resolution = resolution
         self.objective = objective
         self.method = method
+        self.k = k
+        self.tol = tol
+        self.aggregation = aggregation
 
-    def fit(self, X, y=None):
-        """
-        Args:
-            X (array-like): shape (n_timepoints, n_channels).
-            y: ignored, present for sklearn API parity.
-        """
-        X = self._preprocess(X)
-        X = self._make_embedding(X)
-
-        # Per paper Appendix B step 3: per-response fuzzy simplicial
-        # complex + step 4 consensus aggregation. The simplicial output
-        # is already the canonical affinity — no further `sparsify` step,
-        # since the row-adaptive σ_i provides the locality.
-        neighbor_matrix = data_to_connectivity2(X, time_exclude=self.time_exclude)
-
-        if self.store_adjacency_matrix:
-            self.adjacency_matrix = neighbor_matrix
-
-        indices, labels = _leiden(
-            neighbor_matrix,
-            resolution=self.resolution,
-            objective=self.objective,
-            method=self.method,
-            random_state=self.random_state,
+    def _connectivity_stage(self):
+        return SimplicialConnectivity(
+            k=self.k, tol=self.tol, time_exclude=self.time_exclude,
+            aggregation=self.aggregation, metric=self.metric,
+            verbose=self.verbose,
         )
-        sort_inds = np.argsort(indices)
-        indices, labels = indices[sort_inds], labels[sort_inds]
-        reference_indices = np.arange(neighbor_matrix.shape[0])
 
-        self.indices = np.copy(reference_indices)
-        self.labels_ = -np.ones_like(self.indices)
-        self.labels_[indices] = labels
-
-        self.has_unclassified = np.any(self.labels_ < 0)
-        self.n_clusters = len(np.unique(self.labels_)) - self.has_unclassified
-        return self
+    def _reconstructor_stage(self):
+        return LeidenReconstructor(
+            resolution=self.resolution, objective=self.objective,
+            method=self.method, random_state=self.random_state,
+        )

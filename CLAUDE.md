@@ -94,28 +94,35 @@ with `ord=500.` to approximate the Sauer `inf_k d^(k)`.
 src/shrec/
 ├── __init__.py             # version + top-level public API
 ├── embeddings.py           # embed_ts, hankel_matrix, make_embedding
+├── reconstruct.py          # Reconstructor strategies (Leiden/Fiedler/UnionFind/Isomap)
 ├── recurrence/
 │   ├── simplicial.py       # dataset_to_simplex (canonical)
 │   ├── kernel.py           # data_to_connectivity (Sauer baseline)
-│   └── consensus.py        # data_to_connectivity2 (mean aggregation)
+│   ├── consensus.py        # data_to_connectivity2 (mean/max/pnorm aggregation)
+│   └── connectivity.py     # Connectivity strategies (Simplicial/ExpKernel/CommonNeighbors/Precomputed)
 ├── graph/
 │   ├── communities.py      # _leiden multi-backend adapter
 │   └── unionfind.py        # DisjointSet, solve_union_find
 ├── models/
-│   ├── base.py             # RecurrenceModel (sklearn-clean)
-│   ├── recurrence_clustering.py
-│   ├── recurrence_manifold.py
-│   ├── classical.py
-│   ├── hirata_nomura.py
+│   ├── base.py             # RecurrenceModel (sklearn-clean preprocessing/embedding)
+│   ├── pipeline.py         # ShrecPipeline (Connectivity × Reconstructor)
+│   ├── recurrence_clustering.py   # preset
+│   ├── recurrence_manifold.py     # preset
+│   ├── classical.py               # preset
+│   ├── hirata_nomura.py           # preset
 │   └── models.py           # back-compat re-export shim
 └── utils/                  # legacy organisation, preserved via shims
 benchmarks/                 # driver-response synthetic systems
 tests/                      # pytest suite
-docs/                       # architecture / tests-math / history / paper
+docs/                       # architecture / tests-math / history / decisions / paper
 ```
 
-Old import paths (`from shrec.models.models import …`,
-`from shrec.utils import …`) continue to work via shims.
+The pipeline is **composed from stage strategies** (decision
+`docs/decisions/0008`): the four named models are presets over
+`ShrecPipeline`, so any (connectivity × reconstructor) combination is a
+one-line `ShrecPipeline(connectivity=…, reconstructor=…)`. Old import paths
+(`from shrec.models.models import …`, `from shrec.utils import …`) continue
+to work via shims.
 
 ## Testing
 

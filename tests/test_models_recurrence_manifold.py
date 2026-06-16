@@ -11,8 +11,6 @@ import warnings
 import numpy as np
 import pytest
 
-from shrec.models.models import RecurrenceManifold
-
 
 def _two_block_affinity(p1=10, p2=30, bridge=1e-3):
     """K=2 weakly-connected blocks of **unequal size**, with unnormalised
@@ -62,27 +60,16 @@ class TestFiedlerEigenvectorOracle:
     the canonical regression guard once the fix lands.
     """
 
-    def test_two_block_affinity_recovers_block_indicator(self, monkeypatch):
+    def test_two_block_affinity_recovers_block_indicator(self):
         p1, p2 = 10, 30
         A = _two_block_affinity(p1=p1, p2=p2, bridge=1e-3)
         fiedler = _analytical_fiedler(p1=p1, p2=p2)
 
-        # Bypass the time-series preprocessing — feed the precomputed
-        # affinity straight into the spectral step. After the §6 step-4
-        # split, `RecurrenceManifold` imports `data_to_connectivity2`
-        # from `shrec.recurrence` directly, so patch the binding in the
-        # model's own module rather than the legacy `shrec.models.models`
-        # shim.
-        import shrec.models.recurrence_manifold as RM
-        monkeypatch.setattr(RM, "data_to_connectivity2", lambda X, **kw: A)
-
-        # `_make_embedding` is still called on the input, so pass an X with
-        # the right shape (n_timepoints, n_responses); contents are irrelevant.
-        dummy_X = np.zeros((A.shape[0], 1))
-
-        model = RecurrenceManifold(n_components=1, standardize=False)
-        model.fit(dummy_X)
-        pred = np.asarray(model.labels_).squeeze()
+        # Feed the precomputed affinity straight into the spectral step via the
+        # pipeline's injection seam (`PrecomputedConnectivity`), so this oracle
+        # exercises the real `FiedlerReconstructor` without the recurrence
+        # machinery. See docs/decisions/0008.
+        pred = _fiedler_from_affinity(A, n_components=1).squeeze()
         pred = pred / (np.linalg.norm(pred) + 1e-12)
 
         # Cosine similarity, not Pearson correlation: do NOT subtract the mean.
@@ -114,13 +101,23 @@ def _degree_heterogeneous_affinity(p=20, w_low=1.0, w_high=8.0, bridge=0.5):
     return A
 
 
-def _fiedler_from_affinity(A, **model_kwargs):
-    """Run RecurrenceManifold's spectral step on a precomputed affinity."""
-    import shrec.models.recurrence_manifold as RM
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(RM, "data_to_connectivity2", lambda X, **kw: A)
-        dummy_X = np.zeros((A.shape[0], 1))
-        model = RecurrenceManifold(standardize=False, **model_kwargs).fit(dummy_X)
+def _fiedler_from_affinity(A, n_components=1, normalize_laplacian=False):
+    """Run the Fiedler reconstruction on a precomputed affinity via the
+    pipeline's injection seam — `ShrecPipeline(PrecomputedConnectivity(A),
+    FiedlerReconstructor(...))`. This is the post-0008 replacement for the old
+    `monkeypatch.setattr(..., data_to_connectivity2)` trick; it exercises the
+    exact spectral code `RecurrenceManifold` uses, with a known `A`."""
+    from shrec.models import ShrecPipeline
+    from shrec.recurrence.connectivity import PrecomputedConnectivity
+    from shrec.reconstruct import FiedlerReconstructor
+
+    model = ShrecPipeline(
+        connectivity=PrecomputedConnectivity(A),
+        reconstructor=FiedlerReconstructor(
+            n_components=n_components, normalize_laplacian=normalize_laplacian,
+        ),
+        standardize=False,
+    ).fit(np.zeros((A.shape[0], 1)))
     return np.asarray(model.labels_)
 
 
@@ -180,13 +177,17 @@ class TestConnectivityGuard:
     """
 
     def _fit_on_affinity(self, A):
-        import shrec.models.recurrence_manifold as RM
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(RM, "data_to_connectivity2", lambda X, **kw: A)
-            dummy_X = np.zeros((A.shape[0], 1))
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                RecurrenceManifold(n_components=1, standardize=False).fit(dummy_X)
+        from shrec.models import ShrecPipeline
+        from shrec.recurrence.connectivity import PrecomputedConnectivity
+        from shrec.reconstruct import FiedlerReconstructor
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ShrecPipeline(
+                connectivity=PrecomputedConnectivity(A),
+                reconstructor=FiedlerReconstructor(n_components=1),
+                standardize=False,
+            ).fit(np.zeros((A.shape[0], 1)))
         return [w for w in caught if "disconnected" in str(w.message)]
 
     def test_disconnected_graph_warns(self):

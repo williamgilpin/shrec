@@ -57,10 +57,26 @@ Two baselines also live in the repo:
 | ρ/σ root-find + simplicial complex      | `recurrence/simplicial.py:dataset_to_simplex` (canonical, self-contained `fsolve` impl)         |
 | Consensus aggregation                   | `recurrence/consensus.py:data_to_connectivity2` (mean over per-response simplicial outputs)     |
 | Exp-kernel recurrence (baseline only)   | `recurrence/kernel.py:data_to_connectivity` — used by `ClassicalRecurrenceClustering` only      |
-| Discrete driver (Leiden)                | `graph/communities.py:_leiden` → `models/recurrence_clustering.py:RecurrenceClustering`          |
-| Continuous driver (Fiedler)             | `models/recurrence_manifold.py:RecurrenceManifold` — `scipy.linalg.eigh` of `L = D − A`         |
-| Sauer baseline                          | `models/classical.py:ClassicalRecurrenceClustering`, `graph/unionfind.py`                       |
-| Hirata–Nomura baseline                  | `models/hirata_nomura.py` + `utils/graph_tools.common_neighbors_ratio` (vectorised matmul)      |
+| Discrete driver (Leiden)                | `reconstruct.py:LeidenReconstructor` (→ `graph/communities.py:_leiden`)                          |
+| Continuous driver (Fiedler)             | `reconstruct.py:FiedlerReconstructor` — `scipy.linalg.eigh` of `L = D − A`                      |
+| Sauer baseline                          | `reconstruct.py:UnionFindReconstructor` (+ `graph/unionfind.py`)                                |
+| Hirata–Nomura baseline                  | `reconstruct.py:IsomapReconstructor` + `utils/graph_tools.common_neighbors_ratio`               |
+
+Since the 2026-06 modularization (decision 0008), the pipeline is **composed
+from stage strategies** rather than hardwired per model. The four named models
+are presets over `models/pipeline.py:ShrecPipeline`:
+
+| Model | Connectivity stage | Reconstructor stage |
+|-------|--------------------|---------------------|
+| `RecurrenceClustering`          | `SimplicialConnectivity` | `LeidenReconstructor`   |
+| `RecurrenceManifold`            | `SimplicialConnectivity` | `FiedlerReconstructor`  |
+| `ClassicalRecurrenceClustering` | `ExpKernelConnectivity` (sparsified) | `UnionFindReconstructor` |
+| `HirataNomuraIsomap`            | `CommonNeighborsConnectivity` | `IsomapReconstructor` |
+
+Any (connectivity × reconstructor) combination is a one-line
+`ShrecPipeline(connectivity=..., reconstructor=...)`; `PrecomputedConnectivity`
+injects a fixed `A` (the seam the spectral oracles use). Stage strategies live
+in `recurrence/connectivity.py` and `reconstruct.py`.
 
 Top-level public API (`from shrec import …`):
 
@@ -120,11 +136,13 @@ trail.
 src/shrec/
 ├── __init__.py             # version + top-level public API
 ├── embeddings.py           # embed_ts, hankel_matrix, make_embedding
+├── reconstruct.py          # Reconstructor stage strategies (Leiden/Fiedler/UnionFind/Isomap)
 ├── recurrence/
 │   ├── __init__.py
 │   ├── simplicial.py       # dataset_to_simplex, relu (canonical)
 │   ├── kernel.py           # data_to_connectivity (Sauer baseline)
-│   └── consensus.py        # data_to_connectivity2 (mean aggregation)
+│   ├── consensus.py        # data_to_connectivity2 (mean/max/pnorm aggregation)
+│   └── connectivity.py     # Connectivity stage strategies (Simplicial/ExpKernel/CommonNeighbors/Precomputed)
 ├── graph/
 │   ├── __init__.py
 │   ├── communities.py      # _leiden multi-backend adapter
@@ -132,11 +150,12 @@ src/shrec/
 ├── models/
 │   ├── __init__.py         # public model surface
 │   ├── models.py           # back-compat re-export shim
-│   ├── base.py             # RecurrenceModel (sklearn-clean)
-│   ├── recurrence_clustering.py
-│   ├── recurrence_manifold.py
-│   ├── classical.py
-│   └── hirata_nomura.py
+│   ├── base.py             # RecurrenceModel (sklearn-clean preprocessing/embedding)
+│   ├── pipeline.py         # ShrecPipeline (Connectivity × Reconstructor)
+│   ├── recurrence_clustering.py   # preset
+│   ├── recurrence_manifold.py     # preset
+│   ├── classical.py               # preset
+│   └── hirata_nomura.py           # preset
 └── utils/                  # legacy organisation, preserved via shims
     ├── __init__.py
     ├── preprocessing.py    # standardise, detrend, NaN handling
@@ -152,16 +171,23 @@ src/shrec/
 
 ## 5. Where to add new behaviour
 
-- **A new model**: add `models/<name>.py` subclassing
-  `RecurrenceModel` (composition of `recurrence/`, `graph/`,
-  `embeddings.py`). Re-export from `models/__init__.py` and, if
-  user-facing, from `shrec/__init__.py`.
-- **A new recurrence primitive**: prefer adding to
-  `recurrence/{simplicial,kernel,consensus}.py`. New consensus
-  schemes go in `consensus.py`.
+Prefer adding a **stage strategy** over a new model class (decision 0008):
+
+- **A new way to build the recurrence graph**: add a `Connectivity`
+  subclass in `recurrence/connectivity.py` (`__call__(X_embedded) → A`).
+- **A new way to reconstruct the driver**: add a `Reconstructor` subclass
+  in `reconstruct.py` (`__call__(A) → labels`; override `extra_attrs` for
+  derived state like cluster counts).
+- **A new model = a new preset**: subclass `models/pipeline.py:ShrecPipeline`,
+  expose the scalar knobs in `__init__`, and override `_connectivity_stage()`
+  / `_reconstructor_stage()` to build the stage objects. Re-export from
+  `models/__init__.py` and, if user-facing, `shrec/__init__.py`. (Often you
+  don't need a new class at all — just `ShrecPipeline(connectivity=...,
+  reconstructor=...)`.)
+- **A new consensus aggregation**: add a mode to `consensus._aggregate`
+  (`mean`/`max`/`pnorm:<p>` today) and expose it via `SimplicialConnectivity`.
 - **A new community-detection backend**: extend `_leiden` dispatch in
-  `graph/communities.py` and gate its import with `pytest.importorskip`
-  in tests.
+  `graph/communities.py` and gate its import with `pytest.importorskip`.
 - **A new math-correctness test**: claim a new `MM<n>` id, add to
   `docs/tests-math.md`, and cite the id in the test docstring.
 

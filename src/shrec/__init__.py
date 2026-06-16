@@ -6,18 +6,20 @@ for advanced use (`shrec.recurrence`, `shrec.graph`, `shrec.utils`).
 """
 __version__ = "0.2.0.dev0"
 
-from shrec import graph, models, recurrence, utils
+from shrec import graph, models, recurrence, reconstruct, utils
 from shrec.embeddings import embed_ts, hankel_matrix, make_embedding
 from shrec.models import (
     ClassicalRecurrenceClustering,
     HirataNomuraIsomap,
     RecurrenceClustering,
     RecurrenceManifold,
+    ShrecPipeline,
 )
 
 __all__ = [
     "__version__",
-    # canonical models
+    # composable pipeline + the four named presets
+    "ShrecPipeline",
     "RecurrenceClustering",
     "RecurrenceManifold",
     "ClassicalRecurrenceClustering",
@@ -30,5 +32,6 @@ __all__ = [
     "graph",
     "models",
     "recurrence",
+    "reconstruct",
     "utils",
 ]
