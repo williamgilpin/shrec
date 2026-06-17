@@ -39,15 +39,17 @@ proper Python package with the public API at the top level:
 from shrec import RecurrenceClustering, RecurrenceManifold
 ```
 
-Test suite (`uv run pytest`): **153 passed, 6 skipped (optional
+Test suite (`uv run pytest`): **177 passed, 6 skipped (optional
 `igraph`/`leidenalg`/`cdlib` backends), 1 documented xfailed** — this
-includes 3 `@slow` tests (MM21, MM27, MM28); `uv run pytest -m "not slow"`
-skips them (150 passed). The
+includes 5 `@slow` tests (MM21, MM27, MM28, and MM41's two combo-recovery
+checks); `uv run pytest -m "not slow"` skips them (172 passed). The
 math-correctness catalog (`docs/tests-math.md`) is **fully closed**: all
-36 `MM<n>` oracles are green except the single documented MM20 xfail
-(35 green / 1 xfail / 0 deferred). The 2026-06 follow-up batches closed
+41 `MM<n>` oracles are green except the single documented MM20 xfail
+(40 green / 1 xfail / 0 deferred). The 2026-06 follow-up batches closed
 the deferred oracles (MM7–9, 11, 15–17, 21, 23–26, 28, 29) and fixed a
-real ρ off-by-one in `dataset_to_simplex` (MM5; see below).
+real ρ off-by-one in `dataset_to_simplex` (MM5; see below); the
+modularization (decision 0008) added MM37–41 covering the composable
+`ShrecPipeline` surface.
 
 The one remaining xfail is tracked in `docs/tests-math.md`:
 
@@ -95,6 +97,7 @@ src/shrec/
 ├── __init__.py             # version + top-level public API
 ├── embeddings.py           # embed_ts, hankel_matrix, make_embedding
 ├── reconstruct.py          # Reconstructor strategies (Leiden/Fiedler/UnionFind/Isomap)
+├── plotting.py             # optional viz helpers (shrec[viz]): driver overlay, recurrence matrix
 ├── recurrence/
 │   ├── simplicial.py       # dataset_to_simplex (canonical)
 │   ├── kernel.py           # data_to_connectivity (Sauer baseline)
@@ -112,7 +115,8 @@ src/shrec/
 │   ├── hirata_nomura.py           # preset
 │   └── models.py           # back-compat re-export shim
 └── utils/                  # legacy organisation, preserved via shims
-benchmarks/                 # driver-response synthetic systems
+benchmarks/                 # driver-response synthetic systems (+ pipeline_combo_sweep.py)
+examples/                   # runnable quickstart + pipeline-composition scripts
 tests/                      # pytest suite
 docs/                       # architecture / tests-math / history / decisions / paper
 ```

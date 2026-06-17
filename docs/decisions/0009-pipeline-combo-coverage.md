@@ -1,7 +1,46 @@
 # 0009 — Coverage plan for the composable pipeline (tests / benchmarks / examples)
 
-**Status:** plan · **Date:** 2026-06-16
+**Status:** executed (2026-06-17) · **Date:** 2026-06-16
 **Follows:** 0008 (the refactor that enabled these combinations).
+
+> ## Outcome (2026-06-17)
+>
+> All three tiers landed. Suite: **177 passed, 6 skipped, 1 xfailed** (172
+> `-m "not slow"` + 5 slow).
+>
+> - **Tests** — `tests/test_pipeline.py` (MM37 preset≡pipeline for all four
+>   models; MM40 stage contracts; MM41 slow off-preset recovery) and
+>   `tests/test_recurrence_consensus.py` (MM38 aggregation limits; MM39 metric
+>   plumbing). `tests/test_plotting.py` covers the viz helpers. Catalog updated
+>   to 41 oracles (40 green / 1 xfail).
+> - **Benchmark** — `benchmarks/pipeline_combo_sweep.py` → `pipeline_combo_scores.csv`.
+> - **Examples** — `examples/quickstart.py`, `examples/pipeline_composition.py`
+>   (runnable scripts, notebook-ready), `examples/README.md`; plus the
+>   `shrec.plotting` module (E3) — `plot_driver_overlay`, `plot_recurrence_matrix`.
+>
+> ### What execution surfaced (not in the original plan)
+>
+> 1. **The "sensible-combo contract" is real and load-bearing.** Reconstructors
+>    have implicit input semantics: `Fiedler`/`Leiden` take an affinity (any
+>    connectivity); `UnionFind` needs a *sparse/binary* graph — a dense
+>    affinity makes every node mutually reachable, so `Simplicial+UnionFind`
+>    collapses to one component (ARI≈0, confirmed in the benchmark); `Isomap`
+>    wants a dissimilarity. MM41 / the benchmark / the example all now state
+>    this. The plan's casually-listed `Simplicial+UnionFind` combo is a
+>    *non-sequitur* without sparsification.
+> 2. **The canonical presets are not universally best.** On the clean discrete
+>    period-2 task, `ExpKernel+Leiden` (ARI≈0.97) beats `Simplicial+Leiden`
+>    (≈0.53–0.70) — the Sauer-limit regime favours the sharp exp kernel;
+>    `Simplicial+Fiedler` wins the continuous task (|ρ|≈0.82). Good
+>    default-justification data.
+>
+> ### Discovered follow-up (not done — out of this plan's scope)
+>
+> - **Add an optional `sparsify` to `SimplicialConnectivity`** so
+>   `Simplicial+UnionFind` becomes meaningful and the combo grid has no
+>   degenerate cell. Small, genuinely useful; deferred as a feature, not
+>   coverage. (Real DTW and the classical union-find label quirk remain the
+>   other two known out-of-scope items.)
 
 ## Why
 

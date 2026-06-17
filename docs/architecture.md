@@ -143,6 +143,7 @@ src/shrec/
 ├── __init__.py             # version + top-level public API
 ├── embeddings.py           # embed_ts, hankel_matrix, make_embedding
 ├── reconstruct.py          # Reconstructor stage strategies (Leiden/Fiedler/UnionFind/Isomap)
+├── plotting.py             # optional viz helpers (shrec[viz])
 ├── recurrence/
 │   ├── __init__.py
 │   ├── simplicial.py       # dataset_to_simplex, relu (canonical)

@@ -38,6 +38,8 @@ with inputs whose answers can be written down.
 | **MM10 (must)** | ✅ | `graph/communities.py:_leiden` — backend agreement on the barbell graph (ARI=1 across backends). graspologic leg always runs; igraph/leidenalg/cdlib gated by `importorskip`. Also locks the igraph `resolution`-forwarding fix (the branch had hardcoded `resolution_parameter=1.0`). See `tests/test_graph_communities.py`. |
 | MM11 | ✅ | `graph/unionfind.py` parity with `scipy.cluster.hierarchy.DisjointSet`: identical connected-components partition over random merge sequences, and `solve_union_find` returns each group's full transitive closure (cross-checked against scipy `.subset`). Clears the swap-in-scipy-behind-an-adapter path the module's docstring flags. See `tests/test_graph_unionfind.py`. |
 | MM12 | ✅ | `utils/graph_tools.common_neighbors_ratio` — vectorised matches loop on random binary matrices to `atol=0`; K_n with self-loops returns zero. See `tests/test_graph_adjacency.py`. |
+| MM38 | ✅ | `recurrence/consensus.py:_aggregate` aggregation limits (the simplicial-consensus analogue of MM6): `pnorm:1 ≡ mean`, `mean` is the arithmetic mean, `max` is the elementwise max of the per-response stack, and `pnorm:p → max` as `p→∞` on well-conditioned entries (tiny-max entries converge slower — same underflow caveat as MM6). Also pins the wiring: `data_to_connectivity2(aggregation="pnorm:1")` reproduces the default mean on a real ensemble. See `tests/test_recurrence_consensus.py`. |
+| MM39 | ✅ | `metric` plumbing (0008): the distance `metric` reaches the per-response `cdist`, so a non-euclidean metric (`cityblock`) measurably changes the affinity (not silently ignored) while `metric="euclidean"` reproduces the default — and the MM3/MM4 invariants (unit diagonal, symmetry, `[0,1]`) survive any `cdist` metric. See `tests/test_recurrence_consensus.py`. |
 
 ---
 
@@ -74,6 +76,7 @@ Inputs constructed so the answer is provably the one we want.
 | MM24 | ✅ | Identity measurement `x_k = z` (smooth aperiodic driver, light noise) — Spearman `|ρ| > 0.95` (measured ≈ 0.997). Uses N>1 noisy copies, not the literal N=1 (which `standardize_ts` squeezes to 1-D, cf. MM16). See `tests/test_driver_recovery.py`. |
 | MM25 | ✅ | Linear measurement `x_k = a_k z + b_k` — `|ρ| > 0.9` (standardisation removes the per-sensor gain/offset). See `tests/test_driver_recovery.py`. |
 | MM26 | ✅ | Monotone nonlinear measurement `x_k = tanh(z/σ_k)` — `|ρ| > 0.8`; recovery up to a monotone transform, which Spearman is invariant to. See `tests/test_driver_recovery.py`. |
+| MM41 | ✅ (slow) | **Off-preset combo recovery** (plan 0009): the stage-strategy refactor (0008) is only useful if *unnamed* combinations work. `ExpKernelConnectivity(sparsify=False)` + `FiedlerReconstructor` recovers a smooth continuous driver (Spearman `|ρ| > 0.6`); `ExpKernelConnectivity` + `LeidenReconstructor` recovers the period-2 driver (ARI > 0.6). Characterisation bands, not tight oracles. Records the *sensible-combo* contract: `Fiedler`/`Leiden` take an affinity (any connectivity); `UnionFind` needs a sparse/binary graph (`ExpKernelConnectivity(sparsify=True)`); `Isomap` wants a dissimilarity. See `tests/test_pipeline.py`. |
 
 ---
 
@@ -99,6 +102,8 @@ Cheap mechanical pinning.
 | MM31 | ✅ | Constructing a model does not change `np.random.get_state()`. See `tests/test_models_base.py::TestRngIsolation`. |
 | MM32 | ✅ (merged with MM30) | `set_params`/`get_params` round-trip across the four models. |
 | MM36 | ✅ | `RecurrenceManifold` eigenvector shape contract: `subset_by_index=[1, n_components]` returns exactly `n_components` non-trivial eigenvectors, so `labels_` is `(T,)` for `n_components=1` and `(T, n_components)` otherwise. Pins against an index-range off-by-one. See `tests/test_models_recurrence_manifold.py`. |
+| **MM37 (must)** | ✅ | **Preset ≡ `ShrecPipeline`** (plan 0009): each of the four named models equals the explicit `ShrecPipeline(connectivity=…, reconstructor=…)` composition of its stages with matched parameters (clustering ARI=1, manifold `\|cos\|>0.999`, classical labels identical, HN `allclose`). Pins that the presets are faithful thin wrappers over the spine and did not silently drift from it (0008). See `tests/test_pipeline.py`. |
+| MM40 | ✅ | **Stage-strategy contracts** (plan 0009): `Reconstructor` output shapes (`Fiedler`/`Isomap` `(T,)` vs `(T,n_components)`; `Leiden`/`UnionFind` `(T,)`), `LeidenReconstructor.extra_attrs` sets `n_clusters`/`has_unclassified` (others `{}`), and `PrecomputedConnectivity(A)` returns `A` ignoring its input (the injection seam). See `tests/test_pipeline.py`. |
 
 ---
 
@@ -106,12 +111,12 @@ Cheap mechanical pinning.
 
 | Section | Total | Green | xfail | Deferred |
 |---------|-------|-------|-------|----------|
-| §5b.1 inner math      | 13 | 13 | 0 | 0  |
+| §5b.1 inner math      | 15 | 15 | 0 | 0  |
 | §5b.2 invariances     | 6  | 6 | 0 | 0  |
-| §5b.3 limiting cases  | 10 | 9 | 1 | 0  |
+| §5b.3 limiting cases  | 11 | 10 | 1 | 0  |
 | §5b.4 scaling laws    | 3  | 3 | 0 | 0  |
-| §5b.5 sklearn contract| 4  | 4 | 0 | 0  |
-| **total**             | 36 | 35 | 1 | 0  |
+| §5b.5 sklearn contract| 6  | 6 | 0 | 0  |
+| **total**             | 41 | 40 | 1 | 0  |
 
 MM1, MM3 and MM4 also have **Hypothesis property-based** generalisations
 (`TestSimplexInvariantsPropertyBased`) that assert the invariants over

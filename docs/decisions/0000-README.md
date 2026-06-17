@@ -23,7 +23,7 @@ decision → status). Numbered, never renumbered.
 | [0006](0006-percolation-direction-is-an-interpretation.md) | MM28's N-direction is a figure interpretation, not a printed equation | accepted with caveat |
 | [0007](0007-overall-verdict.md) | Overall verdict: the suite tests the right math | accepted |
 | [0008](0008-pipeline-modularization.md) | Pipeline modularization: stage strategies + preset models | **done** |
-| [0009](0009-pipeline-combo-coverage.md) | Coverage plan for the composable pipeline (tests/benchmarks/examples) | plan |
+| [0009](0009-pipeline-combo-coverage.md) | Coverage plan for the composable pipeline (tests/benchmarks/examples) | **executed** |
 
 ## One-paragraph summary
 
