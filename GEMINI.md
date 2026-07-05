@@ -1,6 +1,6 @@
 # Gemini
 
-See [`CLAUDE.md`](CLAUDE.md) for the canonical agent onboarding doc.
+See [`AGENTS.md`](AGENTS.md) for the canonical agent onboarding doc.
 It covers project purpose, the paper-to-code mapping
 (`docs/architecture.md`), the math-correctness test catalog
 (`docs/tests-math.md`), the frozen 2026-05 refactor record
