@@ -163,6 +163,42 @@ class TestReconstructorContract:
         np.testing.assert_array_equal(conn(np.zeros((3, 5))), A)
 
 
+# --- MM42 — SimplicialConnectivity sparsify knob ----------------------------
+
+class TestSimplicialSparsify:
+    """MM42 — the optional `sparsify` on `SimplicialConnectivity` thresholds the
+    dense fuzzy affinity to the requested sparsity `1 − tolerance`, so the
+    adaptive graph can feed a reconstructor that needs a sparse/binary input.
+    Default (`sparsify=False`) leaves the canonical output byte-identical
+    (decision 0009 follow-up)."""
+
+    def test_default_is_unchanged(self, rng):
+        X = rng.standard_normal((5, 60, 3))
+        np.testing.assert_array_equal(
+            SimplicialConnectivity()(X),
+            SimplicialConnectivity(sparsify=False)(X),
+        )
+
+    def test_sparsify_hits_target_zero_fraction(self, rng):
+        X = rng.standard_normal((5, 80, 3))
+        dense = SimplicialConnectivity()(X)
+        assert np.mean(dense == 0) < 0.1  # the fuzzy affinity is dense
+        for tol in (0.05, 0.1, 0.3):
+            A = SimplicialConnectivity(sparsify=True, tolerance=tol)(X)
+            # sparsify guarantees *at least* the requested zero-fraction.
+            assert np.mean(A == 0) >= (1 - tol) - 1e-9
+
+    def test_weighted_flag_toggles_magnitude_vs_binary(self, rng):
+        X = rng.standard_normal((5, 60, 3))
+        weighted = SimplicialConnectivity(sparsify=True, tolerance=0.1,
+                                          weighted=True)(X)
+        binary = SimplicialConnectivity(sparsify=True, tolerance=0.1,
+                                        weighted=False)(X)
+        assert np.any((weighted > 0) & (weighted < 1))          # magnitudes kept
+        assert set(np.unique(binary)).issubset({0.0, 1.0})      # 0/1 only
+        np.testing.assert_allclose(weighted, weighted.T)         # still symmetric
+
+
 # --- MM41 — off-preset combinations recover a known driver (slow) -----------
 
 def _smooth_driver_ensemble(T=400, n_responses=12, coupling=0.4, noise=0.03, seed=0):

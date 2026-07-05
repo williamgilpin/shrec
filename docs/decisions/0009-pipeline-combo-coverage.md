@@ -34,13 +34,19 @@
 >    `Simplicial+Fiedler` wins the continuous task (|ρ|≈0.82). Good
 >    default-justification data.
 >
-> ### Discovered follow-up (not done — out of this plan's scope)
+> ### Discovered follow-up
 >
 > - **Add an optional `sparsify` to `SimplicialConnectivity`** so
 >   `Simplicial+UnionFind` becomes meaningful and the combo grid has no
->   degenerate cell. Small, genuinely useful; deferred as a feature, not
->   coverage. (Real DTW and the classical union-find label quirk remain the
->   other two known out-of-scope items.)
+>   degenerate cell. Small, genuinely useful; was deferred as a feature, not
+>   coverage. **Done (2026-07-05):** `SimplicialConnectivity(sparsify=True,
+>   tolerance=…, weighted=…)` mirrors `ExpKernelConnectivity`; thresholds the
+>   dense affinity to `1 − tolerance`; default path byte-identical; pinned by
+>   MM42 (`tests/test_pipeline.py`). Note the recovered *labels* on
+>   `Simplicial+UnionFind` are still muddied by the separate classical
+>   union-find label quirk (below) — sparsify fixes the graph, not the
+>   labeler. Real DTW and that union-find quirk remain the other two known
+>   out-of-scope items.
 
 ## Why
 

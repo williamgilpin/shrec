@@ -34,23 +34,37 @@ class SimplicialConnectivity(Connectivity):
     The defaults reproduce the historical `data_to_connectivity2(X,
     time_exclude=...)` call used by the canonical models exactly
     (`k=10, tol=1e-5, aggregation="mean", metric="euclidean"`).
+
+    With ``sparsify=True`` the dense consensus affinity is thresholded to the
+    target sparsity `1 − tolerance`, keeping only the strongest recurrences.
+    This is what makes the adaptive graph consumable by a reconstructor that
+    needs a sparse/binary input (e.g. `UnionFindReconstructor`): a dense fuzzy
+    affinity otherwise makes every node mutually reachable, collapsing the
+    Sauer equivalence classes to a single component (decision 0009).
     """
 
     def __init__(self, k=10, tol=1e-5, time_exclude=0, aggregation="mean",
-                 metric="euclidean", verbose=False):
+                 metric="euclidean", sparsify=False, tolerance=0.01,
+                 weighted=True, verbose=False):
         self.k = k
         self.tol = tol
         self.time_exclude = time_exclude
         self.aggregation = aggregation
         self.metric = metric
+        self.sparsify = sparsify
+        self.tolerance = tolerance
+        self.weighted = weighted
         self.verbose = verbose
 
     def __call__(self, X):
-        return data_to_connectivity2(
+        A = data_to_connectivity2(
             X, k=self.k, tol=self.tol, time_exclude=self.time_exclude,
             aggregation=self.aggregation, metric=self.metric,
             verbose=self.verbose,
         )
+        if self.sparsify:
+            A = sparsify(A, 1 - self.tolerance, weighted=self.weighted)
+        return A
 
 
 class ExpKernelConnectivity(Connectivity):
