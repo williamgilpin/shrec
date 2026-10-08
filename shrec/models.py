@@ -732,7 +732,7 @@ class ClassicalRecurrenceClustering(RecurrenceModel):
 
         dist_mat_bin = data_to_connectivity(X, 
                                 time_exclude=0,
-                                use_sparse=False,
+                                # use_sparse=False,
                                 ord=500.,
                                 scale=self.scale
                                 )
@@ -807,7 +807,7 @@ class RecurrenceClustering(RecurrenceModel):
         
         dist_mat_bin = data_to_connectivity(X, 
                             time_exclude=self.time_exclude,
-                            use_sparse=self.use_sparse,
+                            # use_sparse=self.use_sparse,
                             ord=self.aggregation_order,
                             scale=self.scale
                             )
